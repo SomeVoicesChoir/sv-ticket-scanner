@@ -312,6 +312,7 @@
         
         let html5QrCode;
         let isScanning = false;
+        let audioContext = null;
         let stats = {
             totalScanned: 0,
             successCount: 0,
@@ -368,7 +369,42 @@
             document.getElementById('duplicateCount').textContent = stats.duplicateCount;
         }
 
+        function initAudio() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            // Resume context if suspended (required for iOS)
+            if (audioContext.state === 'suspended') {
+                audioContext.resume();
+            }
+        }
+
+        function playSuccessSound() {
+            try {
+                if (!audioContext) return;
+                
+                const oscillator = audioContext.createOscillator();
+                const gainNode = audioContext.createGain();
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+                
+                // Create a pleasant "ding" sound
+                oscillator.frequency.value = 800;
+                oscillator.type = 'sine';
+                
+                gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+                
+                oscillator.start(audioContext.currentTime);
+                oscillator.stop(audioContext.currentTime + 0.3);
+            } catch (error) {
+                console.log('Audio not supported');
+            }
+        }
+
         async function startScanner() {
+            initAudio();
             html5QrCode = new Html5Qrcode("reader");
             
             try {
@@ -483,29 +519,6 @@
                 
             } catch (error) {
                 showResult('error', '❌ Check-In Failed', error.message);
-            }
-        }
-
-        function playSuccessSound() {
-            try {
-                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                const oscillator = audioContext.createOscillator();
-                const gainNode = audioContext.createGain();
-                
-                oscillator.connect(gainNode);
-                gainNode.connect(audioContext.destination);
-                
-                // Create a pleasant "ding" sound
-                oscillator.frequency.value = 800; // Higher pitch
-                oscillator.type = 'sine';
-                
-                gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-                gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
-                
-                oscillator.start(audioContext.currentTime);
-                oscillator.stop(audioContext.currentTime + 0.3);
-            } catch (error) {
-                console.log('Audio not supported');
             }
         }
 
