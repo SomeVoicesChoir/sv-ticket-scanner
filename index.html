@@ -485,20 +485,21 @@
             }
         }
 
-        function showResult(type, title, message, details = '') {
-            const resultDiv = document.getElementById('result');
-            resultDiv.className = `result ${type}`;
-            resultDiv.innerHTML = `
-                <h2>${title}</h2>
-                <p>${message}</p>
-                ${details ? `<div class="ticket-info">${details}</div>` : ''}
-            `;
-            
-            // Auto-hide after 3 seconds for success, keep error/warning visible
-            if (type === 'success') {
-                setTimeout(() => {
-                    resultDiv.style.display = 'none';
-                }, 3000);
+       function showResult(type, title, message, details = '') {
+    const resultDiv = document.getElementById('result');
+    resultDiv.style.display = 'block';  // ← ADD THIS LINE to reset display
+    resultDiv.className = `result ${type}`;
+    resultDiv.innerHTML = `
+        <h2>${title}</h2>
+        <p>${message}</p>
+        ${details ? `<div class="ticket-info">${details}</div>` : ''}
+    `;
+    
+    // Auto-hide after 3 seconds for success, keep error/warning visible
+    if (type === 'success') {
+        setTimeout(() => {
+            resultDiv.style.display = 'none';
+        }, 3000);
             }
         }
     </script>
