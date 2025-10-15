@@ -494,13 +494,6 @@
         <p>${message}</p>
         ${details ? `<div class="ticket-info">${details}</div>` : ''}
     `;
-    
-    // Auto-hide after 3 seconds for success, keep error/warning visible
-    if (type === 'success') {
-        setTimeout(() => {
-            resultDiv.style.display = 'none';
-        }, 4000);
-            }
         }
     </script>
 </body>
