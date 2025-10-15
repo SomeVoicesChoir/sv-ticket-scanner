@@ -403,6 +403,57 @@
             }
         }
 
+        function playWarningSound() {
+            try {
+                if (!audioContext) return;
+                
+                // Double beep for warning
+                const times = [0, 0.15]; // Two beeps
+                times.forEach(time => {
+                    const oscillator = audioContext.createOscillator();
+                    const gainNode = audioContext.createGain();
+                    
+                    oscillator.connect(gainNode);
+                    gainNode.connect(audioContext.destination);
+                    
+                    oscillator.frequency.value = 600; // Lower pitch than success
+                    oscillator.type = 'sine';
+                    
+                    gainNode.gain.setValueAtTime(0.2, audioContext.currentTime + time);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + time + 0.1);
+                    
+                    oscillator.start(audioContext.currentTime + time);
+                    oscillator.stop(audioContext.currentTime + time + 0.1);
+                });
+            } catch (error) {
+                console.log('Audio not supported');
+            }
+        }
+
+        function playErrorSound() {
+            try {
+                if (!audioContext) return;
+                
+                const oscillator = audioContext.createOscillator();
+                const gainNode = audioContext.createGain();
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+                
+                // Lower buzzer sound for errors
+                oscillator.frequency.value = 200; // Much lower pitch
+                oscillator.type = 'sawtooth'; // Harsher sound
+                
+                gainNode.gain.setValueAtTime(0.15, audioContext.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.4);
+                
+                oscillator.start(audioContext.currentTime);
+                oscillator.stop(audioContext.currentTime + 0.4);
+            } catch (error) {
+                console.log('Audio not supported');
+            }
+        }
+
         async function startScanner() {
             initAudio();
             html5QrCode = new Html5Qrcode("reader");
@@ -479,6 +530,7 @@
                 if (fields['Checked In']) {
                     stats.duplicateCount++;
                     updateStats();
+                    playWarningSound();
                     showResult('warning', '⚠️ Already Checked In', 
                         `This ticket was already scanned.`,
                         `Attendee: ${fields['Name'] || 'Unknown'}<br>
@@ -518,6 +570,7 @@
                 );
                 
             } catch (error) {
+                playErrorSound();
                 showResult('error', '❌ Check-In Failed', error.message);
             }
         }
