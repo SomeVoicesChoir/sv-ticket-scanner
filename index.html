@@ -474,6 +474,7 @@
                 
                 stats.successCount++;
                 updateStats();
+                playSuccessSound();
                 showResult('success', '✅ Check-In Successful!',
                     `Ticket validated and checked in.`,
                     `Attendee: ${fields['Name'] || 'Unknown'}<br>
@@ -485,15 +486,38 @@
             }
         }
 
-       function showResult(type, title, message, details = '') {
-    const resultDiv = document.getElementById('result');
-    resultDiv.style.display = 'block';  // ← ADD THIS LINE to reset display
-    resultDiv.className = `result ${type}`;
-    resultDiv.innerHTML = `
-        <h2>${title}</h2>
-        <p>${message}</p>
-        ${details ? `<div class="ticket-info">${details}</div>` : ''}
-    `;
+        function playSuccessSound() {
+            try {
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const oscillator = audioContext.createOscillator();
+                const gainNode = audioContext.createGain();
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+                
+                // Create a pleasant "ding" sound
+                oscillator.frequency.value = 800; // Higher pitch
+                oscillator.type = 'sine';
+                
+                gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+                
+                oscillator.start(audioContext.currentTime);
+                oscillator.stop(audioContext.currentTime + 0.3);
+            } catch (error) {
+                console.log('Audio not supported');
+            }
+        }
+
+        function showResult(type, title, message, details = '') {
+            const resultDiv = document.getElementById('result');
+            resultDiv.style.display = 'block';
+            resultDiv.className = `result ${type}`;
+            resultDiv.innerHTML = `
+                <h2>${title}</h2>
+                <p>${message}</p>
+                ${details ? `<div class="ticket-info">${details}</div>` : ''}
+            `;
         }
     </script>
 </body>
