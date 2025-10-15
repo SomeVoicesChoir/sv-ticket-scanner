@@ -445,7 +445,7 @@
                     updateStats();
                     showResult('warning', '⚠️ Already Checked In', 
                         `This ticket was already scanned.`,
-                        `Attendee: ${fields['Attendee Name'] || 'Unknown'}<br>
+                        `Attendee: ${fields['Name'] || 'Unknown'}<br>
                          Check-in Time: ${fields['Check-in Time'] || 'Unknown'}`
                     );
                     return;
@@ -476,7 +476,7 @@
                 updateStats();
                 showResult('success', '✅ Check-In Successful!',
                     `Ticket validated and checked in.`,
-                    `Attendee: ${fields['Attendee Name'] || 'Unknown'}<br>
+                    `Attendee: ${fields['Name'] || 'Unknown'}<br>
                      Event: ${fields['Event'] || 'Unknown'}`
                 );
                 
