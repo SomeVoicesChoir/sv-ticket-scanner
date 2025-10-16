@@ -145,6 +145,11 @@
             background: #5568d3;
         }
         
+        #startBtn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        
         #stopBtn {
             background: #e74c3c;
             color: white;
@@ -301,6 +306,18 @@
             outline: none;
             border-color: #667eea;
         }
+
+        .event-selector select:disabled {
+            background: #f5f5f5;
+            cursor: not-allowed;
+        }
+
+        .loading {
+            text-align: center;
+            color: #666;
+            font-size: 14px;
+            font-style: italic;
+        }
     </style>
 </head>
 <body>
@@ -326,7 +343,7 @@
                 <div class="event-selector">
                     <label for="eventSelect">Select Event:</label>
                     <select id="eventSelect" onchange="changeEvent()">
-                        <!-- Events will be populated from CONFIG -->
+                        <option value="">Loading events...</option>
                     </select>
                 </div>
                 
@@ -377,16 +394,12 @@
         const CONFIG = {
             password: 'scanner2025',           // Change this to your password
             baseId: 'appDQqklQ8X7LWg8Z',      // Your Airtable Base ID
-            tableId: 'tblk1wb8ILiezVLit',     // Your Airtable Table ID
+            tableId: 'tblk1wb8ILiezVLit',     // Your Airtable Table ID (Tickets table)
             apiKey: 'patVvXPq0jc2O0VSW.08d384ed54e6826f393cbeb5a76c6485c58602f8607c1b7e746fac421a585f7e',       // Your Airtable PAT token
             
-            // LIST YOUR EVENTS HERE - Add/remove as needed
-            events: [
-                'Christmas Concert 2024',
-                'Spring Recital 2025',
-                'Summer Workshop',
-                'Autumn Performance'
-            ]
+            // Event Table Settings
+            eventTableId: 'tblg5s3wlCtFLIsjS',  // Your Event table ID
+            eventNameField: 'Event Name'                // The field name in Event table that contains event names
         };
         // ============================================
         
@@ -395,6 +408,8 @@
         let audioContext = null;
         let scannerName = '';
         let selectedEvent = '';
+        let selectedEventId = '';
+        let availableEvents = [];
         let stats = {
             totalScanned: 0,
             successCount: 0,
@@ -403,24 +418,12 @@
         
         // Check if already authenticated
         window.onload = function() {
-            // Populate event dropdown
-            const eventSelect = document.getElementById('eventSelect');
-            CONFIG.events.forEach(event => {
-                const option = document.createElement('option');
-                option.value = event;
-                option.textContent = event;
-                eventSelect.appendChild(option);
-            });
-            
             if (localStorage.getItem('scanner_authenticated') === 'true') {
                 scannerName = localStorage.getItem('scanner_name') || '';
-                selectedEvent = localStorage.getItem('selected_event') || CONFIG.events[0];
                 if (scannerName) {
-                    eventSelect.value = selectedEvent;
                     showScanner();
+                    loadEvents();
                 }
-            } else {
-                selectedEvent = CONFIG.events[0];
             }
             
             // Allow Enter key to submit
@@ -435,6 +438,62 @@
                 }
             });
         };
+        
+        async function loadEvents() {
+            const eventSelect = document.getElementById('eventSelect');
+            const startBtn = document.getElementById('startBtn');
+            
+            try {
+                eventSelect.disabled = true;
+                startBtn.disabled = true;
+                
+                // Fetch all events from Event table
+                const url = `https://api.airtable.com/v0/${CONFIG.baseId}/${CONFIG.eventTableId}`;
+                const response = await fetch(url, {
+                    headers: {
+                        'Authorization': `Bearer ${CONFIG.apiKey}`
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Failed to load events');
+                }
+                
+                const data = await response.json();
+                availableEvents = data.records.map(record => ({
+                    id: record.id,
+                    name: record.fields[CONFIG.eventNameField] || 'Unnamed Event'
+                }));
+                
+                // Sort events alphabetically
+                availableEvents.sort((a, b) => a.name.localeCompare(b.name));
+                
+                // Populate dropdown
+                eventSelect.innerHTML = '';
+                availableEvents.forEach(event => {
+                    const option = document.createElement('option');
+                    option.value = event.id;
+                    option.textContent = event.name;
+                    eventSelect.appendChild(option);
+                });
+                
+                // Restore previously selected event or select first
+                const savedEventId = localStorage.getItem('selected_event_id');
+                if (savedEventId && availableEvents.find(e => e.id === savedEventId)) {
+                    eventSelect.value = savedEventId;
+                } else if (availableEvents.length > 0) {
+                    eventSelect.value = availableEvents[0].id;
+                }
+                
+                changeEvent();
+                eventSelect.disabled = false;
+                startBtn.disabled = false;
+                
+            } catch (error) {
+                eventSelect.innerHTML = '<option value="">Error loading events</option>';
+                showResult('error', 'Error', `Failed to load events: ${error.message}`);
+            }
+        }
         
         function authenticate() {
             const name = document.getElementById('nameInput').value.trim();
@@ -452,10 +511,9 @@
                 localStorage.setItem('scanner_authenticated', 'true');
                 localStorage.setItem('scanner_name', name);
                 scannerName = name;
-                selectedEvent = CONFIG.events[0];
-                localStorage.setItem('selected_event', selectedEvent);
                 errorMsg.style.display = 'none';
                 showScanner();
+                loadEvents();
             } else {
                 errorMsg.textContent = 'Incorrect password. Please try again.';
                 errorMsg.style.display = 'block';
@@ -465,7 +523,11 @@
         }
         
         function changeEvent() {
-            selectedEvent = document.getElementById('eventSelect').value;
+            selectedEventId = document.getElementById('eventSelect').value;
+            const event = availableEvents.find(e => e.id === selectedEventId);
+            selectedEvent = event ? event.name : '';
+            
+            localStorage.setItem('selected_event_id', selectedEventId);
             localStorage.setItem('selected_event', selectedEvent);
             document.getElementById('currentEventDisplay').textContent = selectedEvent;
             
@@ -479,8 +541,10 @@
             localStorage.removeItem('scanner_authenticated');
             localStorage.removeItem('scanner_name');
             localStorage.removeItem('selected_event');
+            localStorage.removeItem('selected_event_id');
             scannerName = '';
             selectedEvent = '';
+            selectedEventId = '';
             if (isScanning) {
                 stopScanner();
             }
@@ -494,7 +558,6 @@
             document.getElementById('loginScreen').style.display = 'none';
             document.getElementById('scannerInterface').style.display = 'block';
             document.getElementById('scannerNameDisplay').textContent = scannerName;
-            document.getElementById('currentEventDisplay').textContent = selectedEvent;
         }
         
         function updateStats() {
@@ -661,13 +724,13 @@
                 const fields = record.fields;
                 
                 // Check if ticket is for the correct event
-                const ticketEvent = fields['Event'] || '';
-                if (ticketEvent !== selectedEvent) {
+                // Event field returns as an array of record IDs when it's a linked record
+                const ticketEventIds = fields['Event'] || [];
+                if (!ticketEventIds.includes(selectedEventId)) {
                     playErrorSound();
                     showResult('error', '❌ Wrong Event', 
                         `This ticket is for a different event.`,
-                        `Ticket event: ${ticketEvent}<br>
-                         Current scanner event: ${selectedEvent}<br>
+                        `Current scanner event: ${selectedEvent}<br>
                          Attendee: ${fields['Name'] || 'Unknown'}`
                     );
                     return;
@@ -681,7 +744,7 @@
                     showResult('warning', '⚠️ Already Checked In', 
                         `This ticket was already scanned.`,
                         `Attendee: ${fields['Name'] || 'Unknown'}<br>
-                         Event: ${fields['Event'] || 'Unknown'}<br>
+                         Event: ${selectedEvent}<br>
                          Check-in Time: ${fields['Check-in Time'] || 'Unknown'}<br>
                          Checked in by: ${fields['Check-in By'] || 'Unknown'}`
                     );
@@ -716,7 +779,7 @@
                 showResult('success', '✅ Check-In Successful!',
                     `Ticket validated and checked in.`,
                     `Attendee: ${fields['Name'] || 'Unknown'}<br>
-                     Event: ${fields['Event'] || 'Unknown'}<br>
+                     Event: ${selectedEvent}<br>
                      Checked in by: ${scannerName}`
                 );
                 
