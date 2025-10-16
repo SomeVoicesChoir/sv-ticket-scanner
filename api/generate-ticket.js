@@ -48,7 +48,6 @@ module.exports = async function handler(req, res) {
 
         // Get new fields
         const dateTime = fields['Date + Time Friendly'] || '';
-        const eventVenue = fields['Event Venue'] || '';
         const venueAddress = fields['Venue Address'] || '';
 
         // Get QR code URL
@@ -64,7 +63,7 @@ module.exports = async function handler(req, res) {
         const qrImageBase64 = Buffer.from(qrImageBuffer).toString('base64');
 
         // Generate PDF
-        const pdfBase64 = await generatePDF(attendeeName, eventName, qrImageBase64, recordId, dateTime, eventVenue, venueAddress);
+        const pdfBase64 = await generatePDF(attendeeName, eventName, qrImageBase64, recordId, dateTime, venueAddress);
 
         // Upload PDF back to Airtable
         await uploadPDFToAirtable(recordId, pdfBase64, attendeeName);
@@ -97,7 +96,7 @@ async function getEventName(eventId) {
     }
 }
 
-async function generatePDF(name, event, qrImageBase64, recordId, dateTime, eventVenue, venueAddress) {
+async function generatePDF(name, event, qrImageBase64, recordId, dateTime, venueAddress) {
     const doc = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
@@ -108,18 +107,16 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateTime, event
     const accentColor = [234, 62, 40]; // #ea3e28
     const lightBgColor = [244, 219, 192]; // #f4dbc0
 
-    // ADD LOGO - top left
-    /*
+    // ADD LOGO - top left (compressed version)
     try {
-        const logoUrl = 'https://static1.squarespace.com/static/5b0d67017e3c3a79963296a6/t/68f0e860fe2acb6d4d970087/1760618592189/SomeVoices_Logo_Black.png';
+        const logoUrl = 'https://static1.squarespace.com/static/5b0d67017e3c3a79963296a6/t/68f0f21825cefe7a23c08f8e/1760621080739/SomeVoices_Logo_Black';
         const logoResponse = await fetch(logoUrl);
         const logoBuffer = await logoResponse.arrayBuffer();
         const logoBase64 = Buffer.from(logoBuffer).toString('base64');
-        doc.addImage(`data:image/png;base64,${logoBase64}`, 'PNG', 15, 15, 40, 40);
+        doc.addImage(`data:image/png;base64,${logoBase64}`, 'PNG', 15, 15, 30, 30);
     } catch (error) {
         console.log('Could not load logo:', error);
     }
-        */
 
     // DATE + TIME - top right
     if (dateTime) {
@@ -137,21 +134,14 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateTime, event
     const eventLines = doc.splitTextToSize(event, 180);
     doc.text(eventLines, 15, 65);
 
-    // EVENT VENUE - under event, left side
-    let currentY = 65 + (eventLines.length * 7);
-    if (eventVenue) {
-        doc.setFontSize(14);
-        doc.setFont(undefined, 'normal');
-        const venueLines = doc.splitTextToSize(eventVenue, 180);
-        doc.text(venueLines, 15, currentY);
-        currentY += venueLines.length * 6;
-    }
+    // Position for venue address
+    let currentY = 65 + (eventLines.length * 7) + 5;
 
-    // VENUE ADDRESS - under venue, left side, clickable
+    // VENUE ADDRESS - under event, left side, clickable (black text)
     if (venueAddress) {
         doc.setFontSize(12);
         doc.setFont(undefined, 'normal');
-        doc.setTextColor(0, 0, 255); // Blue for link
+        doc.setTextColor(...darkColor);
         const addressLines = doc.splitTextToSize(venueAddress, 180);
         doc.textWithLink(addressLines[0], 15, currentY, { 
             url: `https://maps.google.com/?q=${encodeURIComponent(venueAddress)}` 
@@ -216,32 +206,43 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateTime, event
 async function uploadPDFToAirtable(recordId, pdfBase64, attendeeName) {
     const filename = `ticket_${attendeeName.replace(/[^a-z0-9]/gi, '_')}.pdf`;
     
-    // Step 1: Store PDF temporarily and get ID
-    const storeResponse = await fetch('https://sv-ticket-scanner.vercel.app/api/serve-pdf', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pdfData: pdfBase64 })
-    });
-    
-    const { pdfId } = await storeResponse.json();
-    const pdfUrl = `https://sv-ticket-scanner.vercel.app/api/serve-pdf?id=${pdfId}`;
-    
-    // Step 2: Tell Airtable to fetch from that URL
-    const updateUrl = `https://api.airtable.com/v0/${CONFIG.baseId}/${CONFIG.tableId}/${recordId}`;
-    
-    await fetch(updateUrl, {
-        method: 'PATCH',
-        headers: {
-            'Authorization': `Bearer ${CONFIG.apiKey}`,
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            fields: {
-                'PDF Ticket': [{
-                    url: pdfUrl,
-                    filename: filename
-                }]
-            }
-        })
-    });
+    try {
+        // Step 1: Store PDF temporarily and get ID
+        const storeResponse = await fetch('https://sv-ticket-scanner.vercel.app/api/serve-pdf', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pdfData: pdfBase64 })
+        });
+        
+        if (!storeResponse.ok) {
+            const errorText = await storeResponse.text();
+            throw new Error(`Failed to store PDF: ${storeResponse.status} - ${errorText}`);
+        }
+        
+        const storeData = await storeResponse.json();
+        const { pdfId } = storeData;
+        const pdfUrl = `https://sv-ticket-scanner.vercel.app/api/serve-pdf?id=${pdfId}`;
+        
+        // Step 2: Tell Airtable to fetch from that URL
+        const updateUrl = `https://api.airtable.com/v0/${CONFIG.baseId}/${CONFIG.tableId}/${recordId}`;
+        
+        await fetch(updateUrl, {
+            method: 'PATCH',
+            headers: {
+                'Authorization': `Bearer ${CONFIG.apiKey}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                fields: {
+                    'PDF Ticket': [{
+                        url: pdfUrl,
+                        filename: filename
+                    }]
+                }
+            })
+        });
+    } catch (error) {
+        console.error('Error uploading PDF to Airtable:', error);
+        throw error;
+    }
 }
