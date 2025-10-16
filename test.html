@@ -208,11 +208,20 @@
                 const data = await response.json();
                 
                 if (response.ok && data.success) {
-                    showMessage('success', '✅ Success!', 
-                        `PDF ticket generated successfully!<br><br>
-                        Record ID: ${data.recordId}<br><br>
-                        Check the "PDF Ticket" field in your Airtable table.`
-                    );
+    // Download the PDF
+    if (data.pdfData) {
+        const link = document.createElement('a');
+        link.href = `data:application/pdf;base64,${data.pdfData}`;
+        link.download = data.filename || 'ticket.pdf';
+        link.click();
+        
+        showMessage('success', '✅ Success!', 
+            `PDF ticket generated and downloading!<br><br>
+            Record ID: ${data.recordId}<br><br>
+            Check your Downloads folder.`
+        );
+    }
+}
                 } else {
                     throw new Error(data.error || 'Unknown error');
                 }
