@@ -61,13 +61,13 @@ module.exports = async function handler(req, res) {
         // Generate PDF
         const pdfBase64 = await generatePDF(attendeeName, eventName, qrImageBase64, recordId);
 
-        // For testing - return the PDF data
+       // Upload PDF back to Airtable
+        await uploadPDFToAirtable(recordId, pdfBase64, attendeeName);
+
         return res.status(200).json({ 
             success: true, 
-            message: 'PDF generated successfully',
-            recordId: recordId,
-            pdfData: pdfBase64,
-            filename: `ticket_${attendeeName.replace(/[^a-z0-9]/gi, '_')}.pdf`
+            message: 'Ticket PDF generated and uploaded to Airtable',
+            recordId: recordId
         });
 
     } catch (error) {
@@ -158,6 +158,17 @@ async function generatePDF(name, event, qrImageBase64, recordId) {
 async function uploadPDFToAirtable(recordId, pdfBase64, attendeeName) {
     const filename = `ticket_${attendeeName.replace(/[^a-z0-9]/gi, '_')}.pdf`;
     
+    // Step 1: Store PDF temporarily and get ID
+    const storeResponse = await fetch('https://sv-ticket-scanner.vercel.app/api/serve-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pdfData: pdfBase64 })
+    });
+    
+    const { pdfId } = await storeResponse.json();
+    const pdfUrl = `https://sv-ticket-scanner.vercel.app/api/serve-pdf?id=${pdfId}`;
+    
+    // Step 2: Tell Airtable to fetch from that URL
     const updateUrl = `https://api.airtable.com/v0/${CONFIG.baseId}/${CONFIG.tableId}/${recordId}`;
     
     await fetch(updateUrl, {
@@ -169,7 +180,7 @@ async function uploadPDFToAirtable(recordId, pdfBase64, attendeeName) {
         body: JSON.stringify({
             fields: {
                 'PDF Ticket': [{
-                    url: `data:application/pdf;base64,${pdfBase64}`,
+                    url: pdfUrl,
                     filename: filename
                 }]
             }
