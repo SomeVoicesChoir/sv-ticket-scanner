@@ -109,6 +109,7 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateTime, event
     const lightBgColor = [244, 219, 192]; // #f4dbc0
 
     // ADD LOGO - top left
+    /*
     try {
         const logoUrl = 'https://static1.squarespace.com/static/5b0d67017e3c3a79963296a6/t/68f0e860fe2acb6d4d970087/1760618592189/SomeVoices_Logo_Black.png';
         const logoResponse = await fetch(logoUrl);
@@ -118,6 +119,7 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateTime, event
     } catch (error) {
         console.log('Could not load logo:', error);
     }
+        */
 
     // DATE + TIME - top right
     if (dateTime) {
