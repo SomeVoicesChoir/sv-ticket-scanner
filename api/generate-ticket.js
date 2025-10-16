@@ -61,7 +61,7 @@ module.exports = async function handler(req, res) {
         // Generate PDF
         const pdfBase64 = await generatePDF(attendeeName, eventName, qrImageBase64, recordId);
 
-       // Upload PDF back to Airtable
+        // Upload PDF back to Airtable
         await uploadPDFToAirtable(recordId, pdfBase64, attendeeName);
 
         return res.status(200).json({ 
@@ -101,55 +101,119 @@ async function generatePDF(name, event, qrImageBase64, recordId) {
 
     // Colors
     const primaryColor = [102, 126, 234];
+    const secondaryColor = [118, 75, 162];
     const darkColor = [51, 51, 51];
     const lightColor = [102, 102, 102];
+    const accentColor = [40, 167, 69];
 
-    // Header background
+    // HEADER
     doc.setFillColor(...primaryColor);
-    doc.rect(0, 0, 210, 50, 'F');
+    doc.rect(0, 0, 210, 60, 'F');
+    
+    // ADD YOUR LOGO
+    try {
+        const logoUrl = 'https://static1.squarespace.com/static/5b0d67017e3c3a79963296a6/t/68c3f9db2254285ac3462c07/1757673947211/SV+Primary+logo+colour+circle+small.png';
+        const logoResponse = await fetch(logoUrl);
+        const logoBuffer = await logoResponse.arrayBuffer();
+        const logoBase64 = Buffer.from(logoBuffer).toString('base64');
+        doc.addImage(`data:image/png;base64,${logoBase64}`, 'PNG', 15, 10, 30, 30);
+    } catch (error) {
+        console.log('Could not load logo:', error);
+        // Fallback to emoji if logo fails
+        doc.setFontSize(48);
+        doc.setTextColor(255, 255, 255);
+        doc.text('🎵', 15, 40);
+    }
 
-    // Title
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(32);
+    // Main title
+    doc.setFontSize(36);
     doc.setFont(undefined, 'bold');
-    doc.text('YOUR TICKET', 105, 25, { align: 'center' });
-
-    doc.setFontSize(14);
+    doc.setTextColor(255, 255, 255);
+    doc.text('Some Voices Ticket', 105, 30, { align: 'center' });
+    
+    // Subtitle
+    doc.setFontSize(12);
     doc.setFont(undefined, 'normal');
-    doc.text('Present this QR code at the entrance', 105, 38, { align: 'center' });
+    doc.text('Present this QR code at the entrance', 105, 45, { align: 'center' });
 
-    // Attendee name
+    // Decorative line
+    doc.setDrawColor(...accentColor);
+    doc.setLineWidth(1);
+    doc.line(20, 65, 190, 65);
+
+    // ATTENDEE SECTION
+    doc.setFillColor(248, 249, 250);
+    doc.roundedRect(20, 75, 170, 35, 3, 3, 'F');
+    
     doc.setTextColor(...darkColor);
+    doc.setFontSize(12);
+    doc.setFont(undefined, 'normal');
+    doc.text('ATTENDEE', 30, 85);
+    
     doc.setFontSize(24);
     doc.setFont(undefined, 'bold');
-    doc.text(name, 105, 70, { align: 'center' });
+    doc.text(name, 30, 100);
 
-    // Event name
-    doc.setTextColor(...lightColor);
-    doc.setFontSize(18);
+    // EVENT SECTION
+    doc.setFillColor(248, 249, 250);
+    doc.roundedRect(20, 115, 170, 30, 3, 3, 'F');
+    
+    doc.setTextColor(...darkColor);
+    doc.setFontSize(12);
     doc.setFont(undefined, 'normal');
-    doc.text(event, 105, 85, { align: 'center' });
+    doc.text('EVENT', 30, 125);
+    
+    doc.setFontSize(18);
+    doc.setFont(undefined, 'bold');
+    doc.setTextColor(...primaryColor);
+    doc.text(event, 30, 138);
 
-    // QR Code
+    // QR CODE SECTION
+    doc.setTextColor(...darkColor);
+    doc.setFontSize(12);
+    doc.setFont(undefined, 'normal');
+    doc.text('SCAN TO CHECK IN', 105, 160, { align: 'center' });
+    
+    // QR Code with rounded border
     const qrSize = 80;
     const qrX = (210 - qrSize) / 2;
-    doc.addImage(`data:image/png;base64,${qrImageBase64}`, 'PNG', qrX, 100, qrSize, qrSize);
-
+    const qrY = 170;
+    
+    // Shadow effect
+    doc.setFillColor(220, 220, 220);
+    doc.roundedRect(qrX + 2, qrY + 2, qrSize, qrSize, 5, 5, 'F');
+    
+    // White background
+    doc.setFillColor(255, 255, 255);
+    doc.roundedRect(qrX, qrY, qrSize, qrSize, 5, 5, 'F');
+    
+    // QR Code
+    doc.addImage(`data:image/png;base64,${qrImageBase64}`, 'PNG', qrX + 5, qrY + 5, qrSize - 10, qrSize - 10);
+    
     // Border around QR
     doc.setDrawColor(...primaryColor);
     doc.setLineWidth(2);
-    doc.rect(qrX - 5, 95, qrSize + 10, qrSize + 10);
+    doc.roundedRect(qrX, qrY, qrSize, qrSize, 5, 5, 'S');
 
-    // Footer
-    doc.setTextColor(...lightColor);
+    // INSTRUCTIONS
+    doc.setFillColor(255, 253, 231);
+    doc.roundedRect(20, 260, 170, 20, 3, 3, 'F');
+    
+    doc.setTextColor(133, 100, 4);
     doc.setFontSize(10);
-    doc.text('Please arrive 15 minutes before the event starts', 105, 200, { align: 'center' });
-    doc.text('This ticket is valid for one entry only', 105, 207, { align: 'center' });
+    doc.setFont(undefined, 'normal');
+    doc.text('💡 Please arrive at least 15 minutes before the event starts', 30, 270);
+    doc.text('🎟️ This ticket is valid for one entry only', 30, 276);
 
-    // Record ID at bottom
+    // FOOTER
+    doc.setDrawColor(220, 220, 220);
+    doc.setLineWidth(0.5);
+    doc.line(20, 285, 190, 285);
+    
     doc.setFontSize(8);
     doc.setTextColor(180, 180, 180);
-    doc.text(`Ticket ID: ${recordId}`, 105, 280, { align: 'center' });
+    doc.setFont(undefined, 'normal');
+    doc.text(`Ticket ID: ${recordId}`, 105, 290, { align: 'center' });
 
     // Return PDF as base64
     return doc.output('datauristring').split(',')[1];
