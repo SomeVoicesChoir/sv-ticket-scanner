@@ -61,13 +61,14 @@ module.exports = async function handler(req, res) {
         // Generate PDF
         const pdfBase64 = await generatePDF(attendeeName, eventName, qrImageBase64, recordId);
 
-        // For testing - return the PDF to download
-return res.status(200).json({ 
-    success: true, 
-    message: 'PDF generated (download test)',
-    recordId: recordId,
-    pdfData: pdfBase64
-});
+        // For testing - return the PDF data
+        return res.status(200).json({ 
+            success: true, 
+            message: 'PDF generated successfully',
+            recordId: recordId,
+            pdfData: pdfBase64,
+            filename: `ticket_${attendeeName.replace(/[^a-z0-9]/gi, '_')}.pdf`
+        });
 
     } catch (error) {
         console.error('Error:', error);
