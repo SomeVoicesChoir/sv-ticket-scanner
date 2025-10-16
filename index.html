@@ -311,13 +311,6 @@
             background: #f5f5f5;
             cursor: not-allowed;
         }
-
-        .loading {
-            text-align: center;
-            color: #666;
-            font-size: 14px;
-            font-style: italic;
-        }
     </style>
 </head>
 <body>
@@ -389,17 +382,10 @@
 
     <script>
         // ============================================
-        // CONFIGURATION - Update these values
+        // CONFIGURATION - Only password stored here now!
         // ============================================
         const CONFIG = {
-            password: 'pass',           // Change this to your password
-            baseId: 'appDQqklQ8X7LWg8Z',      // Your Airtable Base ID
-            tableId: 'tblk1wb8ILiezVLit',     // Your Airtable Table ID (Tickets table)
-            apiKey: 'patVvXPq0jc2O0VSW.08d384ed54e6826f393cbeb5a76c6485c58602f8607c1b7e746fac421a585f7e',       // Your Airtable PAT token
-            
-            // Event Table Settings
-            eventTableId: 'tblg5s3wlCtFLIsjS',  // Your Event table ID
-            eventNameField: 'Event Name'                // The field name in Event table that contains event names
+            password: 'scanner2025'  // Only the password - API keys are now server-side!
         };
         // ============================================
         
@@ -447,26 +433,15 @@
                 eventSelect.disabled = true;
                 startBtn.disabled = true;
                 
-                // Fetch all events from Event table
-                const url = `https://api.airtable.com/v0/${CONFIG.baseId}/${CONFIG.eventTableId}`;
-                const response = await fetch(url, {
-                    headers: {
-                        'Authorization': `Bearer ${CONFIG.apiKey}`
-                    }
-                });
+                // Fetch events from our secure API
+                const response = await fetch('/api/get-events');
                 
                 if (!response.ok) {
                     throw new Error('Failed to load events');
                 }
                 
                 const data = await response.json();
-                availableEvents = data.records.map(record => ({
-                    id: record.id,
-                    name: record.fields[CONFIG.eventNameField] || 'Unnamed Event'
-                }));
-                
-                // Sort events alphabetically
-                availableEvents.sort((a, b) => a.name.localeCompare(b.name));
+                availableEvents = data.events;
                 
                 // Populate dropdown
                 eventSelect.innerHTML = '';
@@ -570,7 +545,6 @@
             if (!audioContext) {
                 audioContext = new (window.AudioContext || window.webkitAudioContext)();
             }
-            // Resume context if suspended (required for iOS)
             if (audioContext.state === 'suspended') {
                 audioContext.resume();
             }
@@ -579,20 +553,14 @@
         function playSuccessSound() {
             try {
                 if (!audioContext) return;
-                
                 const oscillator = audioContext.createOscillator();
                 const gainNode = audioContext.createGain();
-                
                 oscillator.connect(gainNode);
                 gainNode.connect(audioContext.destination);
-                
-                // Create a pleasant "ding" sound
                 oscillator.frequency.value = 800;
                 oscillator.type = 'sine';
-                
                 gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
                 gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
-                
                 oscillator.start(audioContext.currentTime);
                 oscillator.stop(audioContext.currentTime + 0.3);
             } catch (error) {
@@ -603,22 +571,16 @@
         function playWarningSound() {
             try {
                 if (!audioContext) return;
-                
-                // Double beep for warning
-                const times = [0, 0.15]; // Two beeps
+                const times = [0, 0.15];
                 times.forEach(time => {
                     const oscillator = audioContext.createOscillator();
                     const gainNode = audioContext.createGain();
-                    
                     oscillator.connect(gainNode);
                     gainNode.connect(audioContext.destination);
-                    
-                    oscillator.frequency.value = 600; // Lower pitch than success
+                    oscillator.frequency.value = 600;
                     oscillator.type = 'sine';
-                    
                     gainNode.gain.setValueAtTime(0.2, audioContext.currentTime + time);
                     gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + time + 0.1);
-                    
                     oscillator.start(audioContext.currentTime + time);
                     oscillator.stop(audioContext.currentTime + time + 0.1);
                 });
@@ -630,20 +592,14 @@
         function playErrorSound() {
             try {
                 if (!audioContext) return;
-                
                 const oscillator = audioContext.createOscillator();
                 const gainNode = audioContext.createGain();
-                
                 oscillator.connect(gainNode);
                 gainNode.connect(audioContext.destination);
-                
-                // Lower buzzer sound for errors
-                oscillator.frequency.value = 200; // Much lower pitch
-                oscillator.type = 'sawtooth'; // Harsher sound
-                
+                oscillator.frequency.value = 200;
+                oscillator.type = 'sawtooth';
                 gainNode.gain.setValueAtTime(0.15, audioContext.currentTime);
                 gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.4);
-                
                 oscillator.start(audioContext.currentTime);
                 oscillator.stop(audioContext.currentTime + 0.4);
             } catch (error) {
@@ -658,10 +614,7 @@
             try {
                 await html5QrCode.start(
                     { facingMode: "environment" },
-                    {
-                        fps: 10,
-                        qrbox: { width: 250, height: 250 }
-                    },
+                    { fps: 10, qrbox: { width: 250, height: 250 } },
                     onScanSuccess,
                     onScanError
                 );
@@ -686,14 +639,12 @@
         async function onScanSuccess(decodedText) {
             stats.totalScanned++;
             
-            // Pause scanning while processing
             if (isScanning) {
                 await stopScanner();
             }
             
             await checkInTicket(decodedText);
             
-            // Resume after 2 seconds
             setTimeout(() => {
                 if (!isScanning) {
                     startScanner();
@@ -702,75 +653,66 @@
         }
 
         function onScanError(error) {
-            // Ignore scan errors (happens frequently)
+            // Ignore scan errors
         }
 
         async function checkInTicket(recordId) {
             try {
-                // First, fetch the record to check if already checked in
-                const getUrl = `https://api.airtable.com/v0/${CONFIG.baseId}/${CONFIG.tableId}/${recordId}`;
-                
-                const getResponse = await fetch(getUrl, {
-                    headers: {
-                        'Authorization': `Bearer ${CONFIG.apiKey}`
-                    }
+                // Step 1: Check ticket via API
+                const checkResponse = await fetch('/api/check-ticket', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        recordId: recordId,
+                        selectedEventId: selectedEventId
+                    })
                 });
                 
-                if (!getResponse.ok) {
+                if (!checkResponse.ok) {
                     throw new Error('Ticket not found');
                 }
                 
-                const record = await getResponse.json();
-                const fields = record.fields;
+                const checkData = await checkResponse.json();
+                const ticket = checkData.ticket;
                 
                 // Check if ticket is for the correct event
-                // Event field returns as an array of record IDs when it's a linked record
-                const ticketEventIds = fields['Event'] || [];
-                if (!ticketEventIds.includes(selectedEventId)) {
+                if (!ticket.isCorrectEvent) {
                     playErrorSound();
                     showResult('error', '❌ Wrong Event', 
                         `This ticket is for a different event.`,
                         `Current scanner event: ${selectedEvent}<br>
-                         Attendee: ${fields['Name'] || 'Unknown'}`
+                         Attendee: ${ticket.name}`
                     );
                     return;
                 }
                 
                 // Check if already checked in
-                if (fields['Checked In']) {
+                if (ticket.checkedIn) {
                     stats.duplicateCount++;
                     updateStats();
                     playWarningSound();
                     showResult('warning', '⚠️ Already Checked In', 
                         `This ticket was already scanned.`,
-                        `Attendee: ${fields['Name'] || 'Unknown'}<br>
+                        `Attendee: ${ticket.name}<br>
                          Event: ${selectedEvent}<br>
-                         Check-in Time: ${fields['Check-in Time'] || 'Unknown'}<br>
-                         Checked in by: ${fields['Check-in By'] || 'Unknown'}`
+                         Check-in Time: ${ticket.checkinTime || 'Unknown'}<br>
+                         Checked in by: ${ticket.checkinBy || 'Unknown'}`
                     );
                     return;
                 }
                 
-                // Check in the ticket
-                const updateUrl = `https://api.airtable.com/v0/${CONFIG.baseId}/${CONFIG.tableId}/${recordId}`;
-                
-                const updateResponse = await fetch(updateUrl, {
-                    method: 'PATCH',
-                    headers: {
-                        'Authorization': `Bearer ${CONFIG.apiKey}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        fields: {
-                            'Checked In': true,
-                            'Check-in Time': new Date().toISOString(),
-                            'Check-in By': scannerName
-                        }
+                // Step 2: Check in the ticket via API
+                const checkinResponse = await fetch('/api/checkin-ticket', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        recordId: recordId,
+                        scannerName: scannerName
                     })
                 });
                 
-                if (!updateResponse.ok) {
-                    throw new Error('Failed to update ticket');
+                if (!checkinResponse.ok) {
+                    throw new Error('Failed to check in ticket');
                 }
                 
                 stats.successCount++;
@@ -778,7 +720,7 @@
                 playSuccessSound();
                 showResult('success', '✅ Check-In Successful!',
                     `Ticket validated and checked in.`,
-                    `Attendee: ${fields['Name'] || 'Unknown'}<br>
+                    `Attendee: ${ticket.name}<br>
                      Event: ${selectedEvent}<br>
                      Checked in by: ${scannerName}`
                 );
@@ -802,3 +744,18 @@
     </script>
 </body>
 </html>
+```
+
+## Summary of Changes:
+
+### Your Folder Structure:
+```
+sv-ticket-scanner/
+├── index.html                 ← Updated (no API keys!)
+├── api/
+│   ├── generate-ticket.js     ← Existing (PDF generator)
+│   ├── get-events.js          ← NEW
+│   ├── check-ticket.js        ← NEW
+│   └── checkin-ticket.js      ← NEW
+├── package.json               ← Existing
+└── vercel.json                ← Existing
