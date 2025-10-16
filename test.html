@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Generator Test</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .container {
+            max-width: 500px;
+            width: 100%;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            font-size: 16px;
+            opacity: 0.9;
+        }
+        
+        .content {
+            padding: 30px;
+        }
+        
+        .input-group {
+            margin-bottom: 20px;
+        }
+        
+        .input-group label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #333;
+        }
+        
+        .input-group input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border 0.3s;
+            font-family: monospace;
+        }
+        
+        .input-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .input-group small {
+            display: block;
+            margin-top: 5px;
+            color: #666;
+            font-size: 14px;
+        }
+        
+        .button {
+            width: 100%;
+            padding: 15px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        
+        .button:hover {
+            background: #5568d3;
+        }
+        
+        .button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        
+        .message {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            display: none;
+            animation: slideIn 0.3s ease;
+        }
+        
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .message.success {
+            background: #d4edda;
+            border: 2px solid #28a745;
+            color: #155724;
+            display: block;
+        }
+        
+        .message.error {
+            background: #f8d7da;
+            border: 2px solid #dc3545;
+            color: #721c24;
+            display: block;
+        }
+        
+        .message.loading {
+            background: #d1ecf1;
+            border: 2px solid #17a2b8;
+            color: #0c5460;
+            display: block;
+        }
+        
+        .message strong {
+            display: block;
+            margin-bottom: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <div class="header">
+                <h1>📄 PDF Generator Test</h1>
+                <p>Test the ticket PDF generation</p>
+            </div>
+            
+            <div class="content">
+                <div class="input-group">
+                    <label for="recordId">Airtable Record ID</label>
+                    <input type="text" id="recordId" placeholder="rec1234567890ABC" />
+                    <small>Paste a Record ID from your Airtable tickets table</small>
+                </div>
+                
+                <button class="button" onclick="generatePDF()">Generate PDF Ticket</button>
+                
+                <div id="message" class="message"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function generatePDF() {
+            const recordId = document.getElementById('recordId').value.trim();
+            const messageDiv = document.getElementById('message');
+            const button = document.querySelector('.button');
+            
+            if (!recordId) {
+                showMessage('error', 'Error', 'Please enter a Record ID');
+                return;
+            }
+            
+            if (!recordId.startsWith('rec')) {
+                showMessage('error', 'Error', 'Invalid Record ID format. Should start with "rec"');
+                return;
+            }
+            
+            button.disabled = true;
+            showMessage('loading', 'Generating...', 'Please wait while we create your PDF ticket.');
+            
+            try {
+                const response = await fetch('https://sv-ticket-scanner.vercel.app/api/generate-ticket', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ recordId: recordId })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok && data.success) {
+                    showMessage('success', '✅ Success!', 
+                        `PDF ticket generated successfully!<br><br>
+                        Record ID: ${data.recordId}<br><br>
+                        Check the "PDF Ticket" field in your Airtable table.`
+                    );
+                } else {
+                    throw new Error(data.error || 'Unknown error');
+                }
+                
+            } catch (error) {
+                showMessage('error', '❌ Error', error.message);
+            } finally {
+                button.disabled = false;
+            }
+        }
+        
+        function showMessage(type, title, text) {
+            const messageDiv = document.getElementById('message');
+            messageDiv.className = `message ${type}`;
+            messageDiv.innerHTML = `<strong>${title}</strong>${text}`;
+        }
+        
+        // Allow Enter key to generate
+        document.getElementById('recordId').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                generatePDF();
+            }
+        });
+    </script>
+</body>
+</html>
