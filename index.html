@@ -249,17 +249,57 @@
             margin-top: 5px;
         }
 
-        .scanner-name {
+        .scanner-info {
             background: #f8f9fa;
-            padding: 10px;
+            padding: 15px;
             border-radius: 8px;
+            margin-bottom: 10px;
+        }
+
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
             margin-bottom: 10px;
             font-size: 14px;
             color: #666;
         }
 
-        .scanner-name strong {
+        .info-row:last-child {
+            margin-bottom: 0;
+        }
+
+        .info-row strong {
             color: #333;
+        }
+
+        .event-selector {
+            padding: 15px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .event-selector label {
+            display: block;
+            font-size: 14px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 8px;
+        }
+
+        .event-selector select {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            background: white;
+            cursor: pointer;
+            transition: border 0.3s;
+        }
+
+        .event-selector select:focus {
+            outline: none;
+            border-color: #667eea;
         }
     </style>
 </head>
@@ -283,9 +323,24 @@
         <!-- Scanner Interface -->
         <div id="scannerInterface" class="scanner-interface">
             <div class="scanner-container">
-                <div class="scanner-name">
-                    Scanning as: <strong id="scannerNameDisplay"></strong>
+                <div class="event-selector">
+                    <label for="eventSelect">Select Event:</label>
+                    <select id="eventSelect" onchange="changeEvent()">
+                        <!-- Events will be populated from CONFIG -->
+                    </select>
                 </div>
+                
+                <div class="scanner-info">
+                    <div class="info-row">
+                        <span>Scanning as:</span>
+                        <strong id="scannerNameDisplay"></strong>
+                    </div>
+                    <div class="info-row">
+                        <span>Current event:</span>
+                        <strong id="currentEventDisplay"></strong>
+                    </div>
+                </div>
+                
                 <div id="reader"></div>
                 <div class="controls">
                     <button id="startBtn" onclick="startScanner()">Start Scanner</button>
@@ -323,7 +378,15 @@
             password: 'scanner2025',           // Change this to your password
             baseId: 'appDQqklQ8X7LWg8Z',      // Your Airtable Base ID
             tableId: 'tblk1wb8ILiezVLit',     // Your Airtable Table ID
-            apiKey: 'patVvXPq0jc2O0VSW.08d384ed54e6826f393cbeb5a76c6485c58602f8607c1b7e746fac421a585f7e'       // Your Airtable PAT token
+            apiKey: 'patVvXPq0jc2O0VSW.08d384ed54e6826f393cbeb5a76c6485c58602f8607c1b7e746fac421a585f7e',       // Your Airtable PAT token
+            
+            // LIST YOUR EVENTS HERE - Add/remove as needed
+            events: [
+                'Christmas Concert 2024',
+                'Spring Recital 2025',
+                'Summer Workshop',
+                'Autumn Performance'
+            ]
         };
         // ============================================
         
@@ -331,6 +394,7 @@
         let isScanning = false;
         let audioContext = null;
         let scannerName = '';
+        let selectedEvent = '';
         let stats = {
             totalScanned: 0,
             successCount: 0,
@@ -339,11 +403,24 @@
         
         // Check if already authenticated
         window.onload = function() {
+            // Populate event dropdown
+            const eventSelect = document.getElementById('eventSelect');
+            CONFIG.events.forEach(event => {
+                const option = document.createElement('option');
+                option.value = event;
+                option.textContent = event;
+                eventSelect.appendChild(option);
+            });
+            
             if (localStorage.getItem('scanner_authenticated') === 'true') {
                 scannerName = localStorage.getItem('scanner_name') || '';
+                selectedEvent = localStorage.getItem('selected_event') || CONFIG.events[0];
                 if (scannerName) {
+                    eventSelect.value = selectedEvent;
                     showScanner();
                 }
+            } else {
+                selectedEvent = CONFIG.events[0];
             }
             
             // Allow Enter key to submit
@@ -375,6 +452,8 @@
                 localStorage.setItem('scanner_authenticated', 'true');
                 localStorage.setItem('scanner_name', name);
                 scannerName = name;
+                selectedEvent = CONFIG.events[0];
+                localStorage.setItem('selected_event', selectedEvent);
                 errorMsg.style.display = 'none';
                 showScanner();
             } else {
@@ -385,10 +464,23 @@
             }
         }
         
+        function changeEvent() {
+            selectedEvent = document.getElementById('eventSelect').value;
+            localStorage.setItem('selected_event', selectedEvent);
+            document.getElementById('currentEventDisplay').textContent = selectedEvent;
+            
+            // Stop scanner if running when changing events
+            if (isScanning) {
+                stopScanner();
+            }
+        }
+        
         function logout() {
             localStorage.removeItem('scanner_authenticated');
             localStorage.removeItem('scanner_name');
+            localStorage.removeItem('selected_event');
             scannerName = '';
+            selectedEvent = '';
             if (isScanning) {
                 stopScanner();
             }
@@ -402,6 +494,7 @@
             document.getElementById('loginScreen').style.display = 'none';
             document.getElementById('scannerInterface').style.display = 'block';
             document.getElementById('scannerNameDisplay').textContent = scannerName;
+            document.getElementById('currentEventDisplay').textContent = selectedEvent;
         }
         
         function updateStats() {
@@ -567,6 +660,19 @@
                 const record = await getResponse.json();
                 const fields = record.fields;
                 
+                // Check if ticket is for the correct event
+                const ticketEvent = fields['Event'] || '';
+                if (ticketEvent !== selectedEvent) {
+                    playErrorSound();
+                    showResult('error', '❌ Wrong Event', 
+                        `This ticket is for a different event.`,
+                        `Ticket event: ${ticketEvent}<br>
+                         Current scanner event: ${selectedEvent}<br>
+                         Attendee: ${fields['Name'] || 'Unknown'}`
+                    );
+                    return;
+                }
+                
                 // Check if already checked in
                 if (fields['Checked In']) {
                     stats.duplicateCount++;
@@ -575,6 +681,7 @@
                     showResult('warning', '⚠️ Already Checked In', 
                         `This ticket was already scanned.`,
                         `Attendee: ${fields['Name'] || 'Unknown'}<br>
+                         Event: ${fields['Event'] || 'Unknown'}<br>
                          Check-in Time: ${fields['Check-in Time'] || 'Unknown'}<br>
                          Checked in by: ${fields['Check-in By'] || 'Unknown'}`
                     );
