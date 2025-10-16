@@ -248,6 +248,19 @@
             color: #666;
             margin-top: 5px;
         }
+
+        .scanner-name {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            font-size: 14px;
+            color: #666;
+        }
+
+        .scanner-name strong {
+            color: #333;
+        }
     </style>
 </head>
 <body>
@@ -260,15 +273,19 @@
         <!-- Login Screen -->
         <div id="loginScreen" class="login-screen">
             <h2>🔐 Authentication Required</h2>
-            <p>Enter the scanner password to continue</p>
-            <input type="password" id="passwordInput" placeholder="Enter password" autocomplete="off">
+            <p>Enter your details to continue</p>
+            <input type="text" id="nameInput" placeholder="Your name" autocomplete="name">
+            <input type="password" id="passwordInput" placeholder="Scanner password" autocomplete="off">
             <button onclick="authenticate()">Unlock Scanner</button>
-            <p class="error-message" id="errorMessage">Incorrect password. Please try again.</p>
+            <p class="error-message" id="errorMessage">Please check your details and try again.</p>
         </div>
         
         <!-- Scanner Interface -->
         <div id="scannerInterface" class="scanner-interface">
             <div class="scanner-container">
+                <div class="scanner-name">
+                    Scanning as: <strong id="scannerNameDisplay"></strong>
+                </div>
                 <div id="reader"></div>
                 <div class="controls">
                     <button id="startBtn" onclick="startScanner()">Start Scanner</button>
@@ -313,6 +330,7 @@
         let html5QrCode;
         let isScanning = false;
         let audioContext = null;
+        let scannerName = '';
         let stats = {
             totalScanned: 0,
             successCount: 0,
@@ -322,11 +340,19 @@
         // Check if already authenticated
         window.onload = function() {
             if (localStorage.getItem('scanner_authenticated') === 'true') {
-                showScanner();
+                scannerName = localStorage.getItem('scanner_name') || '';
+                if (scannerName) {
+                    showScanner();
+                }
             }
             
-            // Allow Enter key to submit password
+            // Allow Enter key to submit
             document.getElementById('passwordInput').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    authenticate();
+                }
+            });
+            document.getElementById('nameInput').addEventListener('keypress', function(e) {
                 if (e.key === 'Enter') {
                     authenticate();
                 }
@@ -334,14 +360,25 @@
         };
         
         function authenticate() {
+            const name = document.getElementById('nameInput').value.trim();
             const password = document.getElementById('passwordInput').value;
             const errorMsg = document.getElementById('errorMessage');
             
+            if (!name) {
+                errorMsg.textContent = 'Please enter your name.';
+                errorMsg.style.display = 'block';
+                document.getElementById('nameInput').focus();
+                return;
+            }
+            
             if (password === CONFIG.password) {
                 localStorage.setItem('scanner_authenticated', 'true');
+                localStorage.setItem('scanner_name', name);
+                scannerName = name;
                 errorMsg.style.display = 'none';
                 showScanner();
             } else {
+                errorMsg.textContent = 'Incorrect password. Please try again.';
                 errorMsg.style.display = 'block';
                 document.getElementById('passwordInput').value = '';
                 document.getElementById('passwordInput').focus();
@@ -350,17 +387,21 @@
         
         function logout() {
             localStorage.removeItem('scanner_authenticated');
+            localStorage.removeItem('scanner_name');
+            scannerName = '';
             if (isScanning) {
                 stopScanner();
             }
             document.getElementById('loginScreen').style.display = 'block';
             document.getElementById('scannerInterface').style.display = 'none';
+            document.getElementById('nameInput').value = '';
             document.getElementById('passwordInput').value = '';
         }
         
         function showScanner() {
             document.getElementById('loginScreen').style.display = 'none';
             document.getElementById('scannerInterface').style.display = 'block';
+            document.getElementById('scannerNameDisplay').textContent = scannerName;
         }
         
         function updateStats() {
@@ -534,7 +575,8 @@
                     showResult('warning', '⚠️ Already Checked In', 
                         `This ticket was already scanned.`,
                         `Attendee: ${fields['Name'] || 'Unknown'}<br>
-                         Check-in Time: ${fields['Check-in Time'] || 'Unknown'}`
+                         Check-in Time: ${fields['Check-in Time'] || 'Unknown'}<br>
+                         Checked in by: ${fields['Check-in By'] || 'Unknown'}`
                     );
                     return;
                 }
@@ -551,7 +593,8 @@
                     body: JSON.stringify({
                         fields: {
                             'Checked In': true,
-                            'Check-in Time': new Date().toISOString()
+                            'Check-in Time': new Date().toISOString(),
+                            'Check-in By': scannerName
                         }
                     })
                 });
@@ -566,7 +609,8 @@
                 showResult('success', '✅ Check-In Successful!',
                     `Ticket validated and checked in.`,
                     `Attendee: ${fields['Name'] || 'Unknown'}<br>
-                     Event: ${fields['Event'] || 'Unknown'}`
+                     Event: ${fields['Event'] || 'Unknown'}<br>
+                     Checked in by: ${scannerName}`
                 );
                 
             } catch (error) {
