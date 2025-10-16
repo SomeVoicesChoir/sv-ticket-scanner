@@ -2,6 +2,22 @@
   "functions": {
     "api/generate-ticket.js": {
       "memory": 1024,
+      "maxDuration": 30
+    },
+    "api/serve-pdf.js": {
+      "memory": 1024,
+      "maxDuration": 10
+    },
+    "api/check-ticket.js": {
+      "memory": 1024,
+      "maxDuration": 10
+    },
+    "api/checkin-ticket.js": {
+      "memory": 1024,
+      "maxDuration": 10
+    },
+    "api/get-events.js": {
+      "memory": 1024,
       "maxDuration": 10
     }
   }
