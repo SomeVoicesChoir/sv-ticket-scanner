@@ -162,11 +162,7 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateTime, venue
     doc.setFont(undefined, 'bold');
     doc.text(name, 15, 145);
 
-    // QR CODE with colored border
-    doc.setFontSize(12);
-    doc.setFont(undefined, 'normal');
-    doc.text('Scan to check in', 105, 165, { align: 'center' });
-    
+    // QR CODE
     const qrSize = 80;
     const qrX = (210 - qrSize) / 2;
     const qrY = 170;
@@ -177,11 +173,6 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateTime, venue
     
     // QR Code
     doc.addImage(`data:image/png;base64,${qrImageBase64}`, 'PNG', qrX + 5, qrY + 5, qrSize - 10, qrSize - 10);
-    
-    // Colored border around QR
-    doc.setDrawColor(...accentColor);
-    doc.setLineWidth(2);
-    doc.roundedRect(qrX, qrY, qrSize, qrSize, 5, 5, 'S');
 
     // INSTRUCTIONS with custom background color
     doc.setFillColor(...lightBgColor);
