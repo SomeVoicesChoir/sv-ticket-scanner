@@ -46,6 +46,11 @@ module.exports = async function handler(req, res) {
             eventName = await getEventName(eventId);
         }
 
+        // Get new fields
+        const dateTime = fields['Date + Time Friendly'] || '';
+        const eventVenue = fields['Event Venue'] || '';
+        const venueAddress = fields['Venue Address'] || '';
+
         // Get QR code URL
         const qrCodeImages = fields['QR Code Image'];
         if (!qrCodeImages || qrCodeImages.length === 0) {
@@ -59,7 +64,7 @@ module.exports = async function handler(req, res) {
         const qrImageBase64 = Buffer.from(qrImageBuffer).toString('base64');
 
         // Generate PDF
-        const pdfBase64 = await generatePDF(attendeeName, eventName, qrImageBase64, recordId);
+        const pdfBase64 = await generatePDF(attendeeName, eventName, qrImageBase64, recordId, dateTime, eventVenue, venueAddress);
 
         // Upload PDF back to Airtable
         await uploadPDFToAirtable(recordId, pdfBase64, attendeeName);
@@ -92,96 +97,87 @@ async function getEventName(eventId) {
     }
 }
 
-async function generatePDF(name, event, qrImageBase64, recordId) {
+async function generatePDF(name, event, qrImageBase64, recordId, dateTime, eventVenue, venueAddress) {
     const doc = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
         format: 'a4'
     });
 
-    // Colors
-    const primaryColor = [102, 126, 234];
-    const secondaryColor = [118, 75, 162];
     const darkColor = [51, 51, 51];
-    const lightColor = [102, 102, 102];
-    const accentColor = [40, 167, 69];
+    const accentColor = [234, 62, 40]; // #ea3e28
+    const lightBgColor = [244, 219, 192]; // #f4dbc0
 
-    // HEADER
-    doc.setFillColor(...primaryColor);
-    doc.rect(0, 0, 210, 60, 'F');
-    
-    // ADD YOUR LOGO
+    // ADD LOGO - top left
     try {
-        const logoUrl = 'https://static1.squarespace.com/static/5b0d67017e3c3a79963296a6/t/68c3f9db2254285ac3462c07/1757673947211/SV+Primary+logo+colour+circle+small.png';
+        const logoUrl = 'https://static1.squarespace.com/static/5b0d67017e3c3a79963296a6/t/68f0e860fe2acb6d4d970087/1760618592189/SomeVoices_Logo_Black.png';
         const logoResponse = await fetch(logoUrl);
         const logoBuffer = await logoResponse.arrayBuffer();
         const logoBase64 = Buffer.from(logoBuffer).toString('base64');
-        doc.addImage(`data:image/png;base64,${logoBase64}`, 'PNG', 15, 10, 30, 30);
+        doc.addImage(`data:image/png;base64,${logoBase64}`, 'PNG', 15, 15, 40, 40);
     } catch (error) {
         console.log('Could not load logo:', error);
-        // Fallback to emoji if logo fails
-        doc.setFontSize(48);
-        doc.setTextColor(255, 255, 255);
-        doc.text('🎵', 15, 40);
     }
 
-    // Main title
-    doc.setFontSize(36);
-    doc.setFont(undefined, 'bold');
-    doc.setTextColor(255, 255, 255);
-    doc.text('Some Voices Ticket', 105, 30, { align: 'center' });
-    
-    // Subtitle
-    doc.setFontSize(12);
-    doc.setFont(undefined, 'normal');
-    doc.text('Present this QR code at the entrance', 105, 45, { align: 'center' });
+    // DATE + TIME - top right
+    if (dateTime) {
+        doc.setFontSize(12);
+        doc.setTextColor(...darkColor);
+        doc.setFont(undefined, 'normal');
+        const dateLines = doc.splitTextToSize(dateTime, 80);
+        doc.text(dateLines, 195, 20, { align: 'right' });
+    }
 
-    // Decorative line
-    doc.setDrawColor(...accentColor);
-    doc.setLineWidth(1);
-    doc.line(20, 65, 190, 65);
-
-    // ATTENDEE SECTION
-    doc.setFillColor(248, 249, 250);
-    doc.roundedRect(20, 75, 170, 35, 3, 3, 'F');
-    
-    doc.setTextColor(...darkColor);
-    doc.setFontSize(12);
-    doc.setFont(undefined, 'normal');
-    doc.text('ATTENDEE', 30, 85);
-    
-    doc.setFontSize(24);
-    doc.setFont(undefined, 'bold');
-    doc.text(name, 30, 100);
-
-    // EVENT SECTION
-    doc.setFillColor(248, 249, 250);
-    doc.roundedRect(20, 115, 170, 30, 3, 3, 'F');
-    
-    doc.setTextColor(...darkColor);
-    doc.setFontSize(12);
-    doc.setFont(undefined, 'normal');
-    doc.text('EVENT', 30, 125);
-    
+    // EVENT - under logo, left side with max width
     doc.setFontSize(18);
     doc.setFont(undefined, 'bold');
-    doc.setTextColor(...primaryColor);
-    doc.text(event, 30, 138);
+    doc.setTextColor(...darkColor);
+    const eventLines = doc.splitTextToSize(event, 180);
+    doc.text(eventLines, 15, 65);
 
-    // QR CODE SECTION
+    // EVENT VENUE - under event, left side
+    let currentY = 65 + (eventLines.length * 7);
+    if (eventVenue) {
+        doc.setFontSize(14);
+        doc.setFont(undefined, 'normal');
+        const venueLines = doc.splitTextToSize(eventVenue, 180);
+        doc.text(venueLines, 15, currentY);
+        currentY += venueLines.length * 6;
+    }
+
+    // VENUE ADDRESS - under venue, left side, clickable
+    if (venueAddress) {
+        doc.setFontSize(12);
+        doc.setFont(undefined, 'normal');
+        doc.setTextColor(0, 0, 255); // Blue for link
+        const addressLines = doc.splitTextToSize(venueAddress, 180);
+        doc.textWithLink(addressLines[0], 15, currentY, { 
+            url: `https://maps.google.com/?q=${encodeURIComponent(venueAddress)}` 
+        });
+        // Add remaining lines without link if address wraps
+        for (let i = 1; i < addressLines.length; i++) {
+            doc.text(addressLines[i], 15, currentY + (i * 5));
+        }
+    }
+
+    // ATTENDEE SECTION
     doc.setTextColor(...darkColor);
     doc.setFontSize(12);
     doc.setFont(undefined, 'normal');
-    doc.text('SCAN TO CHECK IN', 105, 160, { align: 'center' });
+    doc.text('Attendee', 15, 135);
     
-    // QR Code with rounded border
+    doc.setFontSize(20);
+    doc.setFont(undefined, 'bold');
+    doc.text(name, 15, 145);
+
+    // QR CODE with colored border
+    doc.setFontSize(12);
+    doc.setFont(undefined, 'normal');
+    doc.text('Scan to check in', 105, 165, { align: 'center' });
+    
     const qrSize = 80;
     const qrX = (210 - qrSize) / 2;
     const qrY = 170;
-    
-    // Shadow effect
-    doc.setFillColor(220, 220, 220);
-    doc.roundedRect(qrX + 2, qrY + 2, qrSize, qrSize, 5, 5, 'F');
     
     // White background
     doc.setFillColor(255, 255, 255);
@@ -190,26 +186,22 @@ async function generatePDF(name, event, qrImageBase64, recordId) {
     // QR Code
     doc.addImage(`data:image/png;base64,${qrImageBase64}`, 'PNG', qrX + 5, qrY + 5, qrSize - 10, qrSize - 10);
     
-    // Border around QR
-    doc.setDrawColor(...primaryColor);
+    // Colored border around QR
+    doc.setDrawColor(...accentColor);
     doc.setLineWidth(2);
     doc.roundedRect(qrX, qrY, qrSize, qrSize, 5, 5, 'S');
 
-    // INSTRUCTIONS
-    doc.setFillColor(255, 253, 231);
-    doc.roundedRect(20, 260, 170, 20, 3, 3, 'F');
+    // INSTRUCTIONS with custom background color
+    doc.setFillColor(...lightBgColor);
+    doc.roundedRect(20, 260, 170, 15, 3, 3, 'F');
     
-    doc.setTextColor(133, 100, 4);
+    doc.setTextColor(...darkColor);
     doc.setFontSize(10);
     doc.setFont(undefined, 'normal');
-    doc.text('💡 Please arrive at least 15 minutes before the event starts', 30, 270);
-    doc.text('🎟️ This ticket is valid for one entry only', 30, 276);
+    doc.text('Please arrive at least 15 minutes before the event starts', 105, 268, { align: 'center' });
+    doc.text('This ticket is valid for one entry only', 105, 273, { align: 'center' });
 
     // FOOTER
-    doc.setDrawColor(220, 220, 220);
-    doc.setLineWidth(0.5);
-    doc.line(20, 285, 190, 285);
-    
     doc.setFontSize(8);
     doc.setTextColor(180, 180, 180);
     doc.setFont(undefined, 'normal');
