@@ -2,7 +2,6 @@ const fetch = require('node-fetch');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 module.exports = async function handler(req, res) {
-    // Enable CORS - allow all origins
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
@@ -34,13 +33,11 @@ module.exports = async function handler(req, res) {
         currency
     } = req.body;
 
-    // Validate required fields
     if (!eventId || !stripePriceId || !quantity || !firstName || !surname || !attendeeEmail || !phone) {
         return res.status(400).json({ error: 'Missing required fields' });
     }
 
     try {
-        // Create Stripe checkout session
         const session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
             line_items: [{
@@ -52,6 +49,20 @@ module.exports = async function handler(req, res) {
             cancel_url: 'https://somevoices.co.uk/ticket-incomplete',
             customer_email: attendeeEmail,
             automatic_tax: { enabled: true },
+            
+            // ✅ Override global receipt text with ticket-specific text
+    custom_text: {
+        submit: {
+            message: `Thank you for purchasing tickets to ${eventName}! Your ticket(s) will be sent to your email address one or two weeks prior to the event date.`
+        }
+    },
+            
+            // ✅ Custom statement descriptor for bank statements
+            payment_intent_data: {
+                statement_descriptor: 'SomeVoices Event',
+                description: `Ticket for ${eventName}`
+            },
+            
             metadata: {
                 eventId: eventId,
                 eventName: eventName,
