@@ -8,12 +8,18 @@ const CONFIG = {
 };
 
 module.exports = async function handler(req, res) {
+    // Enable CORS
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
+    res.setHeader(
+        'Access-Control-Allow-Headers',
+        'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
+    );
     
     if (req.method === 'OPTIONS') {
-        return res.status(200).end();
+        res.status(200).end();
+        return;
     }
 
     if (req.method !== 'GET') {
@@ -40,7 +46,7 @@ module.exports = async function handler(req, res) {
             stripePriceId: record.fields['Stripe Price ID'],
             dateTime: record.fields['Date + Time Friendly'] || '',
             venueAddress: record.fields['Venue Address'] || '',
-            currency: record.fields["Stripe 'default_price_data[currency]'"] || 'GBP' // ⚠️ Updated field name
+            currency: record.fields["Stripe 'default_price_data[currency]'"] || 'GBP'
         })).filter(event => event.stripePriceId);
 
         return res.status(200).json({ events });

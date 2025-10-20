@@ -2,13 +2,18 @@ const fetch = require('node-fetch');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 module.exports = async function handler(req, res) {
-    // Enable CORS
+    // Enable CORS - allow all origins
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
+    res.setHeader(
+        'Access-Control-Allow-Headers',
+        'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
+    );
     
     if (req.method === 'OPTIONS') {
-        return res.status(200).end();
+        res.status(200).end();
+        return;
     }
 
     if (req.method !== 'POST') {
@@ -46,7 +51,7 @@ module.exports = async function handler(req, res) {
             success_url: `https://somevoices.co.uk/ticket-success?session_id={CHECKOUT_SESSION_ID}`,
             cancel_url: 'https://somevoices.co.uk/ticket-incomplete',
             customer_email: attendeeEmail,
-            // Store all data in metadata so webhook can create ticket records
+            automatic_tax: { enabled: true },
             metadata: {
                 eventId: eventId,
                 eventName: eventName,
