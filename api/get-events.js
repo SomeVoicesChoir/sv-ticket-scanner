@@ -4,11 +4,10 @@ const CONFIG = {
     baseId: process.env.AIRTABLE_BASE_ID,
     eventTableId: process.env.AIRTABLE_EVENT_TABLE_ID,
     apiKey: process.env.AIRTABLE_API_KEY,
-    viewName: 'Currently onsale' // ⚠️ MUST MATCH your Airtable view name exactly
+    viewName: 'Currently onsale'
 };
 
 module.exports = async function handler(req, res) {
-    // Enable CORS
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -34,17 +33,15 @@ module.exports = async function handler(req, res) {
 
         const data = await response.json();
         
-        // Format events for frontend
-        // These field names MUST match your Airtable Event table exactly
         const events = data.records.map(record => ({
             id: record.id,
-            name: record.fields['Event Name'] || 'Unnamed Event',           // ⚠️ MUST MATCH AIRTABLE
-            price: record.fields['Ticket Price'] || 0,                       // ⚠️ MUST MATCH AIRTABLE
-            stripePriceId: record.fields['Stripe Price ID'],                 // ⚠️ MUST MATCH AIRTABLE
-            dateTime: record.fields['Date + Time Friendly'] || '',           // ⚠️ MUST MATCH AIRTABLE
-            venueAddress: record.fields['Venue Address'] || '',              // ⚠️ MUST MATCH AIRTABLE
-            currency: record.fields['Currency'] || 'GBP'                     // ⚠️ MUST MATCH AIRTABLE
-        })).filter(event => event.stripePriceId); // Only return events with Stripe Price ID
+            name: record.fields['Event Name'] || 'Unnamed Event',
+            price: record.fields['Ticket Price'] || 0,
+            stripePriceId: record.fields['Stripe Price ID'],
+            dateTime: record.fields['Date + Time Friendly'] || '',
+            venueAddress: record.fields['Venue Address'] || '',
+            currency: record.fields["Stripe 'default_price_data[currency]'"] || 'GBP' // ⚠️ Updated field name
+        })).filter(event => event.stripePriceId);
 
         return res.status(200).json({ events });
 

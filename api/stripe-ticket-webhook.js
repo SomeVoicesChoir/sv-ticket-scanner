@@ -5,7 +5,7 @@ const CONFIG = {
     baseId: process.env.AIRTABLE_BASE_ID,
     tableId: process.env.AIRTABLE_TABLE_ID, // Your Tickets table
     apiKey: process.env.AIRTABLE_API_KEY,
-    webhookSecret: process.env.STRIPE_WEBHOOK_SECRET
+    webhookSecret: process.env.STRIPE_TICKET_WEBHOOK_SECRET // Note: renamed for clarity
 };
 
 module.exports = async function handler(req, res) {
@@ -33,6 +33,13 @@ module.exports = async function handler(req, res) {
         const session = event.data.object;
         const metadata = session.metadata;
 
+        // ⚠️ CRITICAL: Only process if this is a TICKET purchase
+        // Check for ticket-specific metadata (eventId is unique to ticket purchases)
+        if (!metadata.eventId) {
+            console.log('⏭️ Skipping - not a ticket purchase (probably membership)');
+            return res.status(200).json({ received: true, skipped: 'not a ticket' });
+        }
+
         try {
             const quantity = parseInt(metadata.quantity);
             
@@ -49,7 +56,7 @@ module.exports = async function handler(req, res) {
                     dateTime: metadata.dateTime,
                     venueAddress: metadata.venueAddress,
                     stripeSessionId: session.id,
-                    amountPaid: session.amount_total / 100, // Convert cents to dollars/pounds
+                    amountPaid: session.amount_total / 100,
                     ticketNumber: i + 1,
                     totalTickets: quantity,
                     currency: metadata.currency || 'GBP'
@@ -71,7 +78,6 @@ module.exports = async function handler(req, res) {
 async function createTicketRecord(ticketData) {
     const url = `https://api.airtable.com/v0/${CONFIG.baseId}/${CONFIG.tableId}`;
     
-    // These field names MUST match your Airtable Tickets table exactly
     const response = await fetch(url, {
         method: 'POST',
         headers: {
@@ -80,18 +86,17 @@ async function createTicketRecord(ticketData) {
         },
         body: JSON.stringify({
             fields: {
-                'Event Name': [ticketData.eventId],                          // ⚠️ MUST MATCH AIRTABLE - Linked record
-                'First Name': ticketData.firstName,                          // ⚠️ MUST MATCH AIRTABLE
-                'Surname': ticketData.surname,                               // ⚠️ MUST MATCH AIRTABLE
-                'Email': ticketData.attendeeEmail,                           // ⚠️ MUST MATCH AIRTABLE
-                'Mobile Phone Number': ticketData.phone,                     // ⚠️ MUST MATCH AIRTABLE
-                'Date + Time Friendly': ticketData.dateTime,                 // ⚠️ MUST MATCH AIRTABLE
-                // 'Event Address' is a lookup field, so we don't set it - it pulls from linked Event Name
-                'Stripe Session ID': ticketData.stripeSessionId,             // ⚠️ MUST MATCH AIRTABLE
-                'Amount Paid': ticketData.amountPaid,                        // ⚠️ MUST MATCH AIRTABLE
-                'Ticket Number': `${ticketData.ticketNumber} of ${ticketData.totalTickets}`, // ⚠️ MUST MATCH AIRTABLE
-                'Status': 'Valid',                                           // ⚠️ MUST MATCH AIRTABLE
-                'Currency': ticketData.currency                              // ⚠️ MUST MATCH AIRTABLE
+                'Event Name': [ticketData.eventId],
+                'First Name': ticketData.firstName,
+                'Surname': ticketData.surname,
+                'Email': ticketData.attendeeEmail,
+                'Mobile Phone Number': ticketData.phone,
+                'Date + Time Friendly': ticketData.dateTime,
+                'Stripe Session ID': ticketData.stripeSessionId,
+                'Amount Paid': ticketData.amountPaid,
+                'Ticket Number': `${ticketData.ticketNumber} of ${ticketData.totalTickets}`,
+                'Status': 'Valid',
+                'Currency': ticketData.currency
             }
         })
     });
