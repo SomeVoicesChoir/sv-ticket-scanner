@@ -45,10 +45,12 @@ module.exports = async function handler(req, res) {
     price: record.fields['Ticket Price'] || 0,
     stripePriceId: record.fields['Stripe Price ID'],
     dateTime: record.fields['Date + Time Friendly'] || '',
+    doorsPerformance: record.fields['Doors + Performance Time'] || '', // ✅ Add this
     venueAddress: record.fields['Venue Address'] || '',
+    ticketType: record.fields['Ticket Type'] || 'Standard',
     currency: record.fields["Stripe 'default_price_data[currency]'"] || 'GBP',
-    allocation: record.fields['Allocation'] || 0,  // ✅ Add this
-    ticketsRemaining: record.fields['Tickets Remaining'] || 0  // ✅ Add this
+    allocation: record.fields['Allocation'] || 0,
+    ticketsRemaining: record.fields['Tickets Remaining'] || 0
 })).filter(event => event.stripePriceId); // ✅ Only filter out events without Price ID - keep sold out events
 
         return res.status(200).json({ events });
