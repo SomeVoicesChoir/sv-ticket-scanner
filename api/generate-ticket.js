@@ -211,7 +211,7 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateFriendly, d
     doc.setFontSize(8);
     doc.setTextColor(180, 180, 180);
     doc.setFont(undefined, 'normal');
-    doc.text(`Ticket ID: ${recordId}`, 105, qrY + qrSize + 8, { align: 'center' });
+    doc.text(`Ticket ID: ${recordId}`, 105, qrY + qrSize + 5, { align: 'center' });
 
     // ADMISSION INSTRUCTIONS
     if (admissionInstructions) {
