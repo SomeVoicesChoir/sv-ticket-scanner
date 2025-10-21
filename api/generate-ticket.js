@@ -39,17 +39,14 @@ module.exports = async function handler(req, res) {
         // Get attendee name
         const attendeeName = fields['Name'] || 'Guest';
 
-        // Get event name
-        let eventName = 'Event';
-        if (fields['Event'] && fields['Event'].length > 0) {
-            const eventId = fields['Event'][0];
-            eventName = await getEventName(eventId);
-        }
-
+        // ✅ Get event name from the formula field instead
+        const eventName = fields['Event Name for Ticket'] || 'Event';
+        
         // Get fields
         const dateTime = fields['Date + Time Friendly'] || '';
         const venueAddress = fields['Venue Address'] || '';
-        const invoiceNumber = fields['Invoice Number'] || ''; // ✅ Get invoice number
+        const invoiceNumber = fields['Invoice Number'] || '';
+        const ticketNumber = fields['Ticket Number'] || ''; // ✅ Get ticket number
 
         // Get QR code URL
         const qrCodeImages = fields['QR Code Image'];
@@ -64,7 +61,7 @@ module.exports = async function handler(req, res) {
         const qrImageBase64 = Buffer.from(qrImageBuffer).toString('base64');
 
         // Generate PDF
-        const pdfBase64 = await generatePDF(attendeeName, eventName, qrImageBase64, recordId, dateTime, venueAddress, invoiceNumber); // ✅ Pass invoice number
+        const pdfBase64 = await generatePDF(attendeeName, eventName, qrImageBase64, recordId, dateTime, venueAddress, invoiceNumber, ticketNumber); // ✅ Pass ticket number
 
         // Upload PDF back to Airtable
         await uploadPDFToAirtable(recordId, pdfBase64, attendeeName);
@@ -81,23 +78,7 @@ module.exports = async function handler(req, res) {
     }
 };
 
-async function getEventName(eventId) {
-    try {
-        const url = `https://api.airtable.com/v0/${CONFIG.baseId}/${CONFIG.eventTableId}/${eventId}`;
-        const response = await fetch(url, {
-            headers: { 'Authorization': `Bearer ${CONFIG.apiKey}` }
-        });
-
-        if (!response.ok) return 'Event';
-
-        const data = await response.json();
-        return data.fields[CONFIG.eventNameField] || 'Event';
-    } catch (error) {
-        return 'Event';
-    }
-}
-
-async function generatePDF(name, event, qrImageBase64, recordId, dateTime, venueAddress, invoiceNumber) { // ✅ Add invoiceNumber parameter
+async function generatePDF(name, event, qrImageBase64, recordId, dateTime, venueAddress, invoiceNumber, ticketNumber) { // ✅ Add ticketNumber parameter
     const doc = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
@@ -153,15 +134,23 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateTime, venue
         }
     }
 
-    // ATTENDEE SECTION
+    // ✅ CUSTOMER SECTION (changed from Attendee)
     doc.setTextColor(...darkColor);
     doc.setFontSize(12);
     doc.setFont(undefined, 'normal');
-    doc.text('Attendee', 15, 135);
+    doc.text('Customer', 15, 135);
     
     doc.setFontSize(20);
     doc.setFont(undefined, 'bold');
     doc.text(name, 15, 145);
+    
+    // ✅ TICKET NUMBER - below customer name
+    if (ticketNumber) {
+        doc.setFontSize(12);
+        doc.setFont(undefined, 'normal');
+        doc.setTextColor(...darkColor);
+        doc.text(`Ticket ${ticketNumber}`, 15, 153);
+    }
 
     // QR CODE
     const qrSize = 80;
@@ -175,12 +164,12 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateTime, venue
     // QR Code
     doc.addImage(`data:image/png;base64,${qrImageBase64}`, 'PNG', qrX + 5, qrY + 5, qrSize - 10, qrSize - 10);
 
-    // ✅ INVOICE NUMBER - below QR code
+    // ✅ RECEIPT NUMBER - below QR code (without "Invoice:" prefix)
     if (invoiceNumber) {
         doc.setFontSize(9);
         doc.setTextColor(...darkColor);
         doc.setFont(undefined, 'normal');
-        doc.text(`${invoiceNumber}`, 105, qrY + qrSize + 8, { align: 'center' });
+        doc.text(invoiceNumber, 105, qrY + qrSize + 8, { align: 'center' });
     }
 
     // INSTRUCTIONS with custom background color
