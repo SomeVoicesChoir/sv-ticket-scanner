@@ -49,7 +49,7 @@ module.exports = async function handler(req, res) {
     currency: record.fields["Stripe 'default_price_data[currency]'"] || 'GBP',
     allocation: record.fields['Allocation'] || 0,  // ✅ Add this
     ticketsRemaining: record.fields['Tickets Remaining'] || 0  // ✅ Add this
-})).filter(event => event.stripePriceId && event.ticketsRemaining > 0); // ✅ Filter out sold out events
+})).filter(event => event.stripePriceId); // ✅ Only filter out events without Price ID - keep sold out events
 
         return res.status(200).json({ events });
 
