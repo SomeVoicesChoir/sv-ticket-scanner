@@ -45,6 +45,7 @@ module.exports = async function handler(req, res) {
 
     // Handle successful checkout
     // In the checkout.session.completed handler, after getting the session:
+// In the checkout.session.completed handler:
 if (event.type === 'checkout.session.completed') {
     const session = event.data.object;
     const metadata = session.metadata;
@@ -57,15 +58,22 @@ if (event.type === 'checkout.session.completed') {
     try {
         const quantity = parseInt(metadata.quantity);
         
-        // ✅ Get the invoice number from the session
-        let invoiceNumber = '';
-        if (session.invoice) {
-            // If invoice ID exists, fetch the invoice to get the number
-            const invoice = await stripe.invoices.retrieve(session.invoice);
-            invoiceNumber = invoice.number; // This is the human-readable invoice number
-        } else if (session.payment_intent) {
-            // For payment mode, the charge has an ID we can use
-            invoiceNumber = session.payment_intent; // Use payment intent ID as fallback
+        // ✅ Get the receipt number from the charge
+        let receiptNumber = '';
+        if (session.payment_intent) {
+            try {
+                // Retrieve the payment intent to get the charge
+                const paymentIntent = await stripe.paymentIntents.retrieve(session.payment_intent);
+                
+                // Get the first charge from the payment intent
+                if (paymentIntent.charges && paymentIntent.charges.data.length > 0) {
+                    const charge = paymentIntent.charges.data[0];
+                    receiptNumber = charge.receipt_number || ''; // This is the "Receipt #XXXX-XXXX" format
+                }
+            } catch (error) {
+                console.error('Error fetching receipt number:', error);
+                // Continue without receipt number rather than failing
+            }
         }
         
         // Create multiple ticket records (one per quantity)
@@ -82,7 +90,7 @@ if (event.type === 'checkout.session.completed') {
                 dateTime: metadata.dateTime,
                 venueAddress: metadata.venueAddress,
                 stripeSessionId: session.id,
-                invoiceNumber: invoiceNumber, // ✅ Add invoice number
+                invoiceNumber: receiptNumber, // ✅ Now contains the receipt number
                 amountPaid: session.amount_total / 100,
                 ticketNumber: i + 1,
                 totalTickets: quantity,
