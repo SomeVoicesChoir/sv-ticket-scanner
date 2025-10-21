@@ -127,7 +127,7 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateFriendly, d
         console.log('Could not load logo:', error);
     }
 
-    // ✅ DATE + TIME FRIENDLY - top right (opposite logo)
+    // DATE + TIME FRIENDLY - top right (opposite logo)
     if (dateFriendly) {
         doc.setFontSize(12);
         doc.setTextColor(...darkColor);
@@ -136,14 +136,14 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateFriendly, d
         doc.text(dateLines, 195, 20, { align: 'right' });
     }
 
-    // EVENT NAME - under logo, left side with max width
+    // ✅ EVENT NAME - slightly lower (was 55, now 62)
     doc.setFontSize(18);
     doc.setFont(undefined, 'bold');
     doc.setTextColor(...darkColor);
     const eventLines = doc.splitTextToSize(event, 180);
-    doc.text(eventLines, 15, 55);
+    doc.text(eventLines, 15, 62);
 
-    let currentY = 55 + (eventLines.length * 7) + 5;
+    let currentY = 62 + (eventLines.length * 7) + 5;
 
     // DOORS + PERFORMANCE TIME - under event name
     if (doorsPerformance) {
@@ -177,28 +177,28 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateFriendly, d
         }
     }
 
-    // ✅ CUSTOMER SECTION - moved higher (was 135, now 115)
+    // ✅ CUSTOMER SECTION - higher (was 115, now 108)
     doc.setTextColor(...darkColor);
     doc.setFontSize(12);
     doc.setFont(undefined, 'normal');
-    doc.text('Customer', 15, 115);
+    doc.text('Customer', 15, 108);
     
     doc.setFontSize(20);
     doc.setFont(undefined, 'bold');
-    doc.text(name, 15, 125);
+    doc.text(name, 15, 118);
     
     // TICKET NUMBER - below customer name
     if (ticketNumber) {
         doc.setFontSize(12);
         doc.setFont(undefined, 'normal');
         doc.setTextColor(...darkColor);
-        doc.text(`Ticket ${ticketNumber}`, 15, 133);
+        doc.text(`Ticket ${ticketNumber}`, 15, 126);
     }
 
-    // ✅ QR CODE - moved higher (was 170, now 145)
+    // ✅ QR CODE - higher (was 145, now 135)
     const qrSize = 80;
     const qrX = (210 - qrSize) / 2;
-    const qrY = 145;
+    const qrY = 135;
     
     // White background
     doc.setFillColor(255, 255, 255);
@@ -207,27 +207,21 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateFriendly, d
     // QR Code
     doc.addImage(`data:image/png;base64,${qrImageBase64}`, 'PNG', qrX + 5, qrY + 5, qrSize - 10, qrSize - 10);
 
-    // RECEIPT NUMBER - below QR code
-    if (invoiceNumber) {
-        doc.setFontSize(9);
-        doc.setTextColor(...darkColor);
-        doc.setFont(undefined, 'normal');
-        doc.text(invoiceNumber, 105, qrY + qrSize + 8, { align: 'center' });
-    }
+    // ✅ REMOVED: Receipt number - no longer showing below QR code
 
-    // ✅ ADMISSION INSTRUCTIONS - moved higher (was 260, now 240) with dynamic height
+    // ✅ ADMISSION INSTRUCTIONS - higher (was 240, now 228)
     if (admissionInstructions) {
         const instructionLines = doc.splitTextToSize(admissionInstructions, 160);
-        const boxHeight = Math.max(15, (instructionLines.length * 5) + 10); // Dynamic height based on content
+        const boxHeight = Math.max(15, (instructionLines.length * 5) + 10);
         
         doc.setFillColor(...lightBgColor);
-        doc.roundedRect(20, 240, 170, boxHeight, 3, 3, 'F');
+        doc.roundedRect(20, 228, 170, boxHeight, 3, 3, 'F');
         
         doc.setTextColor(...darkColor);
         doc.setFontSize(10);
         doc.setFont(undefined, 'normal');
         
-        let instructY = 248;
+        let instructY = 236;
         instructionLines.forEach((line, index) => {
             doc.text(line, 105, instructY + (index * 5), { align: 'center' });
         });
@@ -237,7 +231,7 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateFriendly, d
     doc.setFontSize(8);
     doc.setTextColor(180, 180, 180);
     doc.setFont(undefined, 'normal');
-    doc.text(`Ticket ID: ${recordId}`, 105, 285, { align: 'center' });
+    doc.text(`Ticket ID: ${recordId}`, 105, 280, { align: 'center' });
 
     // Return PDF as base64
     return doc.output('datauristring').split(',')[1];
