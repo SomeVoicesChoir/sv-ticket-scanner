@@ -110,7 +110,7 @@ async function createTicketRecord(ticketData) {
                 'Mobile Phone Number': ticketData.phone,
                 'Post Code': ticketData.postcode,
                 'Stripe Session ID': ticketData.stripeSessionId,
-                'Send Tickets Table': ticketData.stripeSessionId, // ✅ Use Session ID for grouping
+                // 'Send Tickets Table' will be populated by Airtable automation
                 'Amount Paid': ticketData.amountPaid,
                 'Ticket Number': `${ticketData.ticketNumber} of ${ticketData.totalTickets}`,
                 'Status': 'Valid',
