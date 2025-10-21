@@ -46,9 +46,10 @@ module.exports = async function handler(req, res) {
             eventName = await getEventName(eventId);
         }
 
-        // Get new fields
+        // Get fields
         const dateTime = fields['Date + Time Friendly'] || '';
         const venueAddress = fields['Venue Address'] || '';
+        const invoiceNumber = fields['Invoice Number'] || ''; // ✅ Get invoice number
 
         // Get QR code URL
         const qrCodeImages = fields['QR Code Image'];
@@ -63,7 +64,7 @@ module.exports = async function handler(req, res) {
         const qrImageBase64 = Buffer.from(qrImageBuffer).toString('base64');
 
         // Generate PDF
-        const pdfBase64 = await generatePDF(attendeeName, eventName, qrImageBase64, recordId, dateTime, venueAddress);
+        const pdfBase64 = await generatePDF(attendeeName, eventName, qrImageBase64, recordId, dateTime, venueAddress, invoiceNumber); // ✅ Pass invoice number
 
         // Upload PDF back to Airtable
         await uploadPDFToAirtable(recordId, pdfBase64, attendeeName);
@@ -96,7 +97,7 @@ async function getEventName(eventId) {
     }
 }
 
-async function generatePDF(name, event, qrImageBase64, recordId, dateTime, venueAddress) {
+async function generatePDF(name, event, qrImageBase64, recordId, dateTime, venueAddress, invoiceNumber) { // ✅ Add invoiceNumber parameter
     const doc = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
@@ -173,6 +174,14 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateTime, venue
     
     // QR Code
     doc.addImage(`data:image/png;base64,${qrImageBase64}`, 'PNG', qrX + 5, qrY + 5, qrSize - 10, qrSize - 10);
+
+    // ✅ INVOICE NUMBER - below QR code
+    if (invoiceNumber) {
+        doc.setFontSize(9);
+        doc.setTextColor(...darkColor);
+        doc.setFont(undefined, 'normal');
+        doc.text(`Invoice: ${invoiceNumber}`, 105, qrY + qrSize + 8, { align: 'center' });
+    }
 
     // INSTRUCTIONS with custom background color
     doc.setFillColor(...lightBgColor);

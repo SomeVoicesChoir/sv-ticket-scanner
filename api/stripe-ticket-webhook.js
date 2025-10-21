@@ -44,47 +44,60 @@ module.exports = async function handler(req, res) {
     }
 
     // Handle successful checkout
-    if (event.type === 'checkout.session.completed') {
-        const session = event.data.object;
-        const metadata = session.metadata;
+    // In the checkout.session.completed handler, after getting the session:
+if (event.type === 'checkout.session.completed') {
+    const session = event.data.object;
+    const metadata = session.metadata;
 
-        // Only process if this is a TICKET purchase
-        if (!metadata.eventId) {
-            console.log('⏭️ Skipping - not a ticket purchase');
-            return res.status(200).json({ received: true, skipped: 'not a ticket' });
-        }
-
-        try {
-            const quantity = parseInt(metadata.quantity);
-            
-            // Create multiple ticket records (one per quantity)
-            const ticketPromises = [];
-            for (let i = 0; i < quantity; i++) {
-                ticketPromises.push(createTicketRecord({
-                    eventId: metadata.eventId,
-                    eventName: metadata.eventName,
-                    firstName: metadata.firstName,
-                    surname: metadata.surname,
-                    attendeeEmail: metadata.attendeeEmail,
-                    phone: metadata.phone,
-                    dateTime: metadata.dateTime,
-                    venueAddress: metadata.venueAddress,
-                    stripeSessionId: session.id,
-                    amountPaid: session.amount_total / 100,
-                    ticketNumber: i + 1,
-                    totalTickets: quantity,
-                    currency: metadata.currency || 'GBP'
-                }));
-            }
-
-            await Promise.all(ticketPromises);
-            console.log(`✅ Created ${quantity} tickets for event ${metadata.eventName}`);
-
-        } catch (error) {
-            console.error('Error creating ticket records:', error);
-            return res.status(500).json({ error: error.message });
-        }
+    if (!metadata.eventId) {
+        console.log('⏭️ Skipping - not a ticket purchase');
+        return res.status(200).json({ received: true, skipped: 'not a ticket' });
     }
+
+    try {
+        const quantity = parseInt(metadata.quantity);
+        
+        // ✅ Get the invoice number from the session
+        let invoiceNumber = '';
+        if (session.invoice) {
+            // If invoice ID exists, fetch the invoice to get the number
+            const invoice = await stripe.invoices.retrieve(session.invoice);
+            invoiceNumber = invoice.number; // This is the human-readable invoice number
+        } else if (session.payment_intent) {
+            // For payment mode, the charge has an ID we can use
+            invoiceNumber = session.payment_intent; // Use payment intent ID as fallback
+        }
+        
+        // Create multiple ticket records (one per quantity)
+        const ticketPromises = [];
+        for (let i = 0; i < quantity; i++) {
+            ticketPromises.push(createTicketRecord({
+                eventId: metadata.eventId,
+                eventName: metadata.eventName,
+                firstName: metadata.firstName,
+                surname: metadata.surname,
+                attendeeEmail: metadata.attendeeEmail,
+                phone: metadata.phone,
+                postcode: metadata.postcode,
+                dateTime: metadata.dateTime,
+                venueAddress: metadata.venueAddress,
+                stripeSessionId: session.id,
+                invoiceNumber: invoiceNumber, // ✅ Add invoice number
+                amountPaid: session.amount_total / 100,
+                ticketNumber: i + 1,
+                totalTickets: quantity,
+                currency: metadata.currency || 'GBP'
+            }));
+        }
+
+        await Promise.all(ticketPromises);
+        console.log(`✅ Created ${quantity} tickets for event ${metadata.eventName}`);
+
+    } catch (error) {
+        console.error('Error creating ticket records:', error);
+        return res.status(500).json({ error: error.message });
+    }
+}
 
     return res.status(200).json({ received: true });
 };
@@ -105,7 +118,9 @@ async function createTicketRecord(ticketData) {
                 'Surname': ticketData.surname,
                 'Email': ticketData.attendeeEmail,
                 'Mobile Phone Number': ticketData.phone,
+                'Post Code': ticketData.postcode,
                 'Stripe Session ID': ticketData.stripeSessionId,
+                'Invoice Number': ticketData.invoiceNumber, // ✅ Add this
                 'Amount Paid': ticketData.amountPaid,
                 'Ticket Number': `${ticketData.ticketNumber} of ${ticketData.totalTickets}`,
                 'Status': 'Valid',
