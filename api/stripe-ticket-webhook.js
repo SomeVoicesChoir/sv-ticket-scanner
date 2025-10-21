@@ -45,7 +45,7 @@ module.exports = async function handler(req, res) {
 
     // Handle successful checkout
     // In the checkout.session.completed handler, after getting the session:
-// In the checkout.session.completed handler:
+// // In the checkout.session.completed handler:
 if (event.type === 'checkout.session.completed') {
     const session = event.data.object;
     const metadata = session.metadata;
@@ -58,7 +58,7 @@ if (event.type === 'checkout.session.completed') {
     try {
         const quantity = parseInt(metadata.quantity);
         
-        // ✅ Get the receipt number from the charge
+        // ✅ Get the receipt number from the charge, with fallback to payment_intent
         let receiptNumber = '';
         if (session.payment_intent) {
             try {
@@ -68,13 +68,20 @@ if (event.type === 'checkout.session.completed') {
                 // Get the first charge from the payment intent
                 if (paymentIntent.charges && paymentIntent.charges.data.length > 0) {
                     const charge = paymentIntent.charges.data[0];
-                    receiptNumber = charge.receipt_number || ''; // This is the "Receipt #XXXX-XXXX" format
+                    receiptNumber = charge.receipt_number || charge.id || session.payment_intent; // Use charge.id or payment_intent as fallback
+                } else {
+                    // No charges yet, use payment intent ID
+                    receiptNumber = session.payment_intent;
                 }
             } catch (error) {
                 console.error('Error fetching receipt number:', error);
-                // Continue without receipt number rather than failing
+                // Use payment intent ID as fallback
+                receiptNumber = session.payment_intent;
             }
         }
+        
+        console.log(`Receipt/Invoice number: ${receiptNumber}`); // ✅ Add logging
+        
         
         // Create multiple ticket records (one per quantity)
         const ticketPromises = [];
