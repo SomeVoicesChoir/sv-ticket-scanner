@@ -42,6 +42,7 @@ module.exports = async function handler(req, res) {
         const events = data.records.map(record => ({
     id: record.id,
     name: record.fields['Event Name'] || 'Unnamed Event',
+    displayName: record.fields['Display Name'] || record.fields['Event Name'], // ✅ Add this
     price: record.fields['Ticket Price'] || 0,
     stripePriceId: record.fields['Stripe Price ID'],
     dateTime: record.fields['Date + Time Friendly'] || '',
