@@ -1,11 +1,18 @@
 const fetch = require('node-fetch');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
+// ✅ CRITICAL: Tell Vercel to NOT parse the body - we need raw bytes for signature verification
+export const config = {
+    api: {
+        bodyParser: false,
+    },
+};
+
 const CONFIG = {
     baseId: process.env.AIRTABLE_BASE_ID,
-    tableId: process.env.AIRTABLE_TABLE_ID, // Your Tickets table
+    tableId: process.env.AIRTABLE_TABLE_ID,
     apiKey: process.env.AIRTABLE_API_KEY,
-    webhookSecret: process.env.STRIPE_TICKET_WEBHOOK_SECRET // Note: renamed for clarity
+    webhookSecret: process.env.STRIPE_TICKET_WEBHOOK_SECRET
 };
 
 module.exports = async function handler(req, res) {
@@ -14,12 +21,20 @@ module.exports = async function handler(req, res) {
     }
 
     const sig = req.headers['stripe-signature'];
+    
+    // ✅ Get the raw body as a buffer
+    const chunks = [];
+    for await (const chunk of req) {
+        chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+    }
+    const rawBody = Buffer.concat(chunks);
+    
     let event;
 
     try {
-        // Verify webhook signature
+        // Verify webhook signature with raw body
         event = stripe.webhooks.constructEvent(
-            req.body,
+            rawBody,
             sig,
             CONFIG.webhookSecret
         );
@@ -33,10 +48,9 @@ module.exports = async function handler(req, res) {
         const session = event.data.object;
         const metadata = session.metadata;
 
-        // ⚠️ CRITICAL: Only process if this is a TICKET purchase
-        // Check for ticket-specific metadata (eventId is unique to ticket purchases)
+        // Only process if this is a TICKET purchase
         if (!metadata.eventId) {
-            console.log('⏭️ Skipping - not a ticket purchase (probably membership)');
+            console.log('⏭️ Skipping - not a ticket purchase');
             return res.status(200).json({ received: true, skipped: 'not a ticket' });
         }
 
