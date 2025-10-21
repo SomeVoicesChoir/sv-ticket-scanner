@@ -10,6 +10,15 @@ const CONFIG = {
     eventNameField: 'Event Name'
 };
 
+// Helper function to safely get value from Airtable field (handles arrays from lookup fields)
+function getFieldValue(field, defaultValue = '') {
+    if (!field) return defaultValue;
+    if (Array.isArray(field) && field.length > 0) {
+        return field[0];
+    }
+    return field || defaultValue;
+}
+
 module.exports = async function handler(req, res) {
     // Only allow POST requests
     if (req.method !== 'POST') {
@@ -37,20 +46,22 @@ module.exports = async function handler(req, res) {
         const fields = ticketData.fields;
 
         // Get attendee name
-        const attendeeName = fields['Name'] || 'Guest';
+        const attendeeName = getFieldValue(fields['Name'], 'Guest');
 
-        // Get event name from the lookup field and remove any surrounding quotes
-        let eventName = fields['Event Name for Ticket'] || 'Event';
-        eventName = eventName.replace(/^"|"$/g, '');
+        // Get event name and remove any surrounding quotes
+        let eventName = getFieldValue(fields['Event Name for Ticket'], 'Event');
+        if (typeof eventName === 'string') {
+            eventName = eventName.replace(/^"|"$/g, '');
+        }
         
-        // Get fields
-        const dateFriendly = fields['Date Friendly'] || ''; // ✅ New field
-        const doorsPerformance = fields['Doors + Performance Time'] || ''; // ✅ New field
-        const ticketTypePrice = fields['Ticket Type + Price'] || ''; // ✅ New field
-        const venueAddress = fields['Venue Address'] || '';
-        const invoiceNumber = fields['Invoice Number'] || '';
-        const ticketNumber = fields['Ticket Number'] || '';
-        const admissionInstructions = fields['Admission Instructions'] || ''; // ✅ New field
+        // Get fields - use helper to handle lookup arrays
+        const dateFriendly = getFieldValue(fields['Date Friendly']);
+        const doorsPerformance = getFieldValue(fields['Doors + Performance Time']);
+        const ticketTypePrice = getFieldValue(fields['Ticket Type + Price']);
+        const venueAddress = getFieldValue(fields['Venue Address']);
+        const invoiceNumber = getFieldValue(fields['Invoice Number']);
+        const ticketNumber = getFieldValue(fields['Ticket Number']);
+        const admissionInstructions = getFieldValue(fields['Admission Instructions']);
 
         // Get QR code URL
         const qrCodeImages = fields['QR Code Image'];
@@ -125,7 +136,7 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateFriendly, d
 
     let currentY = 65 + (eventLines.length * 7) + 5;
 
-    // ✅ DATE FRIENDLY - under event name
+    // DATE FRIENDLY - under event name
     if (dateFriendly) {
         doc.setFontSize(12);
         doc.setFont(undefined, 'normal');
@@ -134,7 +145,7 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateFriendly, d
         currentY += 7;
     }
 
-    // ✅ DOORS + PERFORMANCE TIME - under date
+    // DOORS + PERFORMANCE TIME - under date
     if (doorsPerformance) {
         doc.setFontSize(12);
         doc.setFont(undefined, 'normal');
@@ -143,7 +154,7 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateFriendly, d
         currentY += 7;
     }
 
-    // ✅ TICKET TYPE + PRICE - under doors/performance
+    // TICKET TYPE + PRICE - under doors/performance
     if (ticketTypePrice) {
         doc.setFontSize(12);
         doc.setFont(undefined, 'normal');
@@ -204,7 +215,7 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateFriendly, d
         doc.text(invoiceNumber, 105, qrY + qrSize + 8, { align: 'center' });
     }
 
-    // ✅ ADMISSION INSTRUCTIONS - dynamic content from Airtable
+    // ADMISSION INSTRUCTIONS - dynamic content from Airtable
     if (admissionInstructions) {
         doc.setFillColor(...lightBgColor);
         doc.roundedRect(20, 260, 170, 15, 3, 3, 'F');
