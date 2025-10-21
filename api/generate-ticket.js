@@ -127,25 +127,25 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateFriendly, d
         console.log('Could not load logo:', error);
     }
 
+    // ✅ DATE + TIME FRIENDLY - top right (opposite logo)
+    if (dateFriendly) {
+        doc.setFontSize(12);
+        doc.setTextColor(...darkColor);
+        doc.setFont(undefined, 'normal');
+        const dateLines = doc.splitTextToSize(dateFriendly, 80);
+        doc.text(dateLines, 195, 20, { align: 'right' });
+    }
+
     // EVENT NAME - under logo, left side with max width
     doc.setFontSize(18);
     doc.setFont(undefined, 'bold');
     doc.setTextColor(...darkColor);
     const eventLines = doc.splitTextToSize(event, 180);
-    doc.text(eventLines, 15, 65);
+    doc.text(eventLines, 15, 55);
 
-    let currentY = 65 + (eventLines.length * 7) + 5;
+    let currentY = 55 + (eventLines.length * 7) + 5;
 
-    // DATE FRIENDLY - under event name
-    if (dateFriendly) {
-        doc.setFontSize(12);
-        doc.setFont(undefined, 'normal');
-        doc.setTextColor(...darkColor);
-        doc.text(dateFriendly, 15, currentY);
-        currentY += 7;
-    }
-
-    // DOORS + PERFORMANCE TIME - under date
+    // DOORS + PERFORMANCE TIME - under event name
     if (doorsPerformance) {
         doc.setFontSize(12);
         doc.setFont(undefined, 'normal');
@@ -177,28 +177,28 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateFriendly, d
         }
     }
 
-    // CUSTOMER SECTION
+    // ✅ CUSTOMER SECTION - moved higher (was 135, now 115)
     doc.setTextColor(...darkColor);
     doc.setFontSize(12);
     doc.setFont(undefined, 'normal');
-    doc.text('Customer', 15, 135);
+    doc.text('Customer', 15, 115);
     
     doc.setFontSize(20);
     doc.setFont(undefined, 'bold');
-    doc.text(name, 15, 145);
+    doc.text(name, 15, 125);
     
     // TICKET NUMBER - below customer name
     if (ticketNumber) {
         doc.setFontSize(12);
         doc.setFont(undefined, 'normal');
         doc.setTextColor(...darkColor);
-        doc.text(`Ticket ${ticketNumber}`, 15, 153);
+        doc.text(`Ticket ${ticketNumber}`, 15, 133);
     }
 
-    // QR CODE
+    // ✅ QR CODE - moved higher (was 170, now 145)
     const qrSize = 80;
     const qrX = (210 - qrSize) / 2;
-    const qrY = 170;
+    const qrY = 145;
     
     // White background
     doc.setFillColor(255, 255, 255);
@@ -215,18 +215,19 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateFriendly, d
         doc.text(invoiceNumber, 105, qrY + qrSize + 8, { align: 'center' });
     }
 
-    // ADMISSION INSTRUCTIONS - dynamic content from Airtable
+    // ✅ ADMISSION INSTRUCTIONS - moved higher (was 260, now 240) with dynamic height
     if (admissionInstructions) {
+        const instructionLines = doc.splitTextToSize(admissionInstructions, 160);
+        const boxHeight = Math.max(15, (instructionLines.length * 5) + 10); // Dynamic height based on content
+        
         doc.setFillColor(...lightBgColor);
-        doc.roundedRect(20, 260, 170, 15, 3, 3, 'F');
+        doc.roundedRect(20, 240, 170, boxHeight, 3, 3, 'F');
         
         doc.setTextColor(...darkColor);
         doc.setFontSize(10);
         doc.setFont(undefined, 'normal');
         
-        // Split instructions into multiple lines if needed
-        const instructionLines = doc.splitTextToSize(admissionInstructions, 160);
-        let instructY = 268;
+        let instructY = 248;
         instructionLines.forEach((line, index) => {
             doc.text(line, 105, instructY + (index * 5), { align: 'center' });
         });
@@ -236,7 +237,7 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateFriendly, d
     doc.setFontSize(8);
     doc.setTextColor(180, 180, 180);
     doc.setFont(undefined, 'normal');
-    doc.text(`Ticket ID: ${recordId}`, 105, 290, { align: 'center' });
+    doc.text(`Ticket ID: ${recordId}`, 105, 285, { align: 'center' });
 
     // Return PDF as base64
     return doc.output('datauristring').split(',')[1];
