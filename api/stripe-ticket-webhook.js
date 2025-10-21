@@ -129,6 +129,7 @@ async function createTicketRecord(ticketData) {
                 'Post Code': ticketData.postcode,
                 'Stripe Session ID': ticketData.stripeSessionId,
                 'Invoice Number': ticketData.invoiceNumber, // ✅ Add this
+                'Send Tickets Table': ticketData.invoiceNumber, // ✅ Add invoice number here too
                 'Amount Paid': ticketData.amountPaid,
                 'Ticket Number': `${ticketData.ticketNumber} of ${ticketData.totalTickets}`,
                 'Status': 'Valid',
