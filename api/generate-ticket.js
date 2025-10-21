@@ -39,14 +39,18 @@ module.exports = async function handler(req, res) {
         // Get attendee name
         const attendeeName = fields['Name'] || 'Guest';
 
-        // ✅ Get event name from the formula field instead
-        const eventName = fields['Event Name for Ticket'] || 'Event';
+        // Get event name from the lookup field and remove any surrounding quotes
+        let eventName = fields['Event Name for Ticket'] || 'Event';
+        eventName = eventName.replace(/^"|"$/g, '');
         
         // Get fields
-        const dateTime = fields['Date + Time Friendly'] || '';
+        const dateFriendly = fields['Date Friendly'] || ''; // ✅ New field
+        const doorsPerformance = fields['Doors + Performance Time'] || ''; // ✅ New field
+        const ticketTypePrice = fields['Ticket Type + Price'] || ''; // ✅ New field
         const venueAddress = fields['Venue Address'] || '';
         const invoiceNumber = fields['Invoice Number'] || '';
-        const ticketNumber = fields['Ticket Number'] || ''; // ✅ Get ticket number
+        const ticketNumber = fields['Ticket Number'] || '';
+        const admissionInstructions = fields['Admission Instructions'] || ''; // ✅ New field
 
         // Get QR code URL
         const qrCodeImages = fields['QR Code Image'];
@@ -61,7 +65,19 @@ module.exports = async function handler(req, res) {
         const qrImageBase64 = Buffer.from(qrImageBuffer).toString('base64');
 
         // Generate PDF
-        const pdfBase64 = await generatePDF(attendeeName, eventName, qrImageBase64, recordId, dateTime, venueAddress, invoiceNumber, ticketNumber); // ✅ Pass ticket number
+        const pdfBase64 = await generatePDF(
+            attendeeName, 
+            eventName, 
+            qrImageBase64, 
+            recordId, 
+            dateFriendly,
+            doorsPerformance,
+            ticketTypePrice,
+            venueAddress, 
+            invoiceNumber, 
+            ticketNumber,
+            admissionInstructions
+        );
 
         // Upload PDF back to Airtable
         await uploadPDFToAirtable(recordId, pdfBase64, attendeeName);
@@ -78,7 +94,7 @@ module.exports = async function handler(req, res) {
     }
 };
 
-async function generatePDF(name, event, qrImageBase64, recordId, dateTime, venueAddress, invoiceNumber, ticketNumber) { // ✅ Add ticketNumber parameter
+async function generatePDF(name, event, qrImageBase64, recordId, dateFriendly, doorsPerformance, ticketTypePrice, venueAddress, invoiceNumber, ticketNumber, admissionInstructions) {
     const doc = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
@@ -89,7 +105,7 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateTime, venue
     const accentColor = [234, 62, 40]; // #ea3e28
     const lightBgColor = [244, 219, 192]; // #f4dbc0
 
-    // ADD LOGO - top left (compressed version)
+    // ADD LOGO - top left
     try {
         const logoUrl = 'https://static1.squarespace.com/static/5b0d67017e3c3a79963296a6/t/68f0f21825cefe7a23c08f8e/1760621080739/SomeVoices_Logo_Black';
         const logoResponse = await fetch(logoUrl);
@@ -100,26 +116,43 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateTime, venue
         console.log('Could not load logo:', error);
     }
 
-    // DATE + TIME - top right
-    if (dateTime) {
-        doc.setFontSize(12);
-        doc.setTextColor(...darkColor);
-        doc.setFont(undefined, 'normal');
-        const dateLines = doc.splitTextToSize(dateTime, 80);
-        doc.text(dateLines, 195, 20, { align: 'right' });
-    }
-
-    // EVENT - under logo, left side with max width
+    // EVENT NAME - under logo, left side with max width
     doc.setFontSize(18);
     doc.setFont(undefined, 'bold');
     doc.setTextColor(...darkColor);
     const eventLines = doc.splitTextToSize(event, 180);
     doc.text(eventLines, 15, 65);
 
-    // Position for venue address
     let currentY = 65 + (eventLines.length * 7) + 5;
 
-    // VENUE ADDRESS - under event, left side, clickable (black text)
+    // ✅ DATE FRIENDLY - under event name
+    if (dateFriendly) {
+        doc.setFontSize(12);
+        doc.setFont(undefined, 'normal');
+        doc.setTextColor(...darkColor);
+        doc.text(dateFriendly, 15, currentY);
+        currentY += 7;
+    }
+
+    // ✅ DOORS + PERFORMANCE TIME - under date
+    if (doorsPerformance) {
+        doc.setFontSize(12);
+        doc.setFont(undefined, 'normal');
+        doc.setTextColor(...darkColor);
+        doc.text(doorsPerformance, 15, currentY);
+        currentY += 7;
+    }
+
+    // ✅ TICKET TYPE + PRICE - under doors/performance
+    if (ticketTypePrice) {
+        doc.setFontSize(12);
+        doc.setFont(undefined, 'normal');
+        doc.setTextColor(...darkColor);
+        doc.text(ticketTypePrice, 15, currentY);
+        currentY += 7;
+    }
+
+    // VENUE ADDRESS - after other details, clickable
     if (venueAddress) {
         doc.setFontSize(12);
         doc.setFont(undefined, 'normal');
@@ -128,13 +161,12 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateTime, venue
         doc.textWithLink(addressLines[0], 15, currentY, { 
             url: `https://maps.google.com/?q=${encodeURIComponent(venueAddress)}` 
         });
-        // Add remaining lines without link if address wraps
         for (let i = 1; i < addressLines.length; i++) {
             doc.text(addressLines[i], 15, currentY + (i * 5));
         }
     }
 
-    // ✅ CUSTOMER SECTION (changed from Attendee)
+    // CUSTOMER SECTION
     doc.setTextColor(...darkColor);
     doc.setFontSize(12);
     doc.setFont(undefined, 'normal');
@@ -144,7 +176,7 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateTime, venue
     doc.setFont(undefined, 'bold');
     doc.text(name, 15, 145);
     
-    // ✅ TICKET NUMBER - below customer name
+    // TICKET NUMBER - below customer name
     if (ticketNumber) {
         doc.setFontSize(12);
         doc.setFont(undefined, 'normal');
@@ -164,7 +196,7 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateTime, venue
     // QR Code
     doc.addImage(`data:image/png;base64,${qrImageBase64}`, 'PNG', qrX + 5, qrY + 5, qrSize - 10, qrSize - 10);
 
-    // ✅ RECEIPT NUMBER - below QR code (without "Invoice:" prefix)
+    // RECEIPT NUMBER - below QR code
     if (invoiceNumber) {
         doc.setFontSize(9);
         doc.setTextColor(...darkColor);
@@ -172,15 +204,22 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateTime, venue
         doc.text(invoiceNumber, 105, qrY + qrSize + 8, { align: 'center' });
     }
 
-    // INSTRUCTIONS with custom background color
-    doc.setFillColor(...lightBgColor);
-    doc.roundedRect(20, 260, 170, 15, 3, 3, 'F');
-    
-    doc.setTextColor(...darkColor);
-    doc.setFontSize(10);
-    doc.setFont(undefined, 'normal');
-    doc.text('Please arrive at least 15 minutes before the event starts', 105, 268, { align: 'center' });
-    doc.text('This ticket is valid for one entry only', 105, 273, { align: 'center' });
+    // ✅ ADMISSION INSTRUCTIONS - dynamic content from Airtable
+    if (admissionInstructions) {
+        doc.setFillColor(...lightBgColor);
+        doc.roundedRect(20, 260, 170, 15, 3, 3, 'F');
+        
+        doc.setTextColor(...darkColor);
+        doc.setFontSize(10);
+        doc.setFont(undefined, 'normal');
+        
+        // Split instructions into multiple lines if needed
+        const instructionLines = doc.splitTextToSize(admissionInstructions, 160);
+        let instructY = 268;
+        instructionLines.forEach((line, index) => {
+            doc.text(line, 105, instructY + (index * 5), { align: 'center' });
+        });
+    }
 
     // FOOTER
     doc.setFontSize(8);
