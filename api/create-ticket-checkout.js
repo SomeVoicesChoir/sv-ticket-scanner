@@ -28,14 +28,16 @@ module.exports = async function handler(req, res) {
         surname,
         attendeeEmail,
         phone,
+        postcode,
         dateTime,
         venueAddress,
         currency
     } = req.body;
 
-    if (!eventId || !stripePriceId || !quantity || !firstName || !surname || !attendeeEmail || !phone) {
-        return res.status(400).json({ error: 'Missing required fields' });
-    }
+    // Update validation
+if (!eventId || !stripePriceId || !quantity || !firstName || !surname || !attendeeEmail || !phone || !postcode) {
+    return res.status(400).json({ error: 'Missing required fields' });
+}
 
     try {
         const session = await stripe.checkout.sessions.create({
@@ -71,6 +73,7 @@ module.exports = async function handler(req, res) {
                 surname: surname,
                 attendeeEmail: attendeeEmail,
                 phone: phone,
+                postcode: postcode,
                 dateTime: dateTime || '',
                 venueAddress: venueAddress || '',
                 currency: currency || 'GBP'

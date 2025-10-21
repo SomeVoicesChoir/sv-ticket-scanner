@@ -40,14 +40,16 @@ module.exports = async function handler(req, res) {
         const data = await response.json();
         
         const events = data.records.map(record => ({
-            id: record.id,
-            name: record.fields['Event Name'] || 'Unnamed Event',
-            price: record.fields['Ticket Price'] || 0,
-            stripePriceId: record.fields['Stripe Price ID'],
-            dateTime: record.fields['Date + Time Friendly'] || '',
-            venueAddress: record.fields['Venue Address'] || '',
-            currency: record.fields["Stripe 'default_price_data[currency]'"] || 'GBP'
-        })).filter(event => event.stripePriceId);
+    id: record.id,
+    name: record.fields['Event Name'] || 'Unnamed Event',
+    price: record.fields['Ticket Price'] || 0,
+    stripePriceId: record.fields['Stripe Price ID'],
+    dateTime: record.fields['Date + Time Friendly'] || '',
+    venueAddress: record.fields['Venue Address'] || '',
+    currency: record.fields["Stripe 'default_price_data[currency]'"] || 'GBP',
+    allocation: record.fields['Allocation'] || 0,  // ✅ Add this
+    ticketsRemaining: record.fields['Tickets Remaining'] || 0  // ✅ Add this
+})).filter(event => event.stripePriceId && event.ticketsRemaining > 0); // ✅ Filter out sold out events
 
         return res.status(200).json({ events });
 

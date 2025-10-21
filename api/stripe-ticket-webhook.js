@@ -105,7 +105,6 @@ async function createTicketRecord(ticketData) {
                 'Surname': ticketData.surname,
                 'Email': ticketData.attendeeEmail,
                 'Mobile Phone Number': ticketData.phone,
-                'Date + Time Friendly': ticketData.dateTime,
                 'Stripe Session ID': ticketData.stripeSessionId,
                 'Amount Paid': ticketData.amountPaid,
                 'Ticket Number': `${ticketData.ticketNumber} of ${ticketData.totalTickets}`,
