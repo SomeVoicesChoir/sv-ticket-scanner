@@ -180,7 +180,7 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateTime, venue
         doc.setFontSize(9);
         doc.setTextColor(...darkColor);
         doc.setFont(undefined, 'normal');
-        doc.text(`Invoice: ${invoiceNumber}`, 105, qrY + qrSize + 8, { align: 'center' });
+        doc.text(`${invoiceNumber}`, 105, qrY + qrSize + 8, { align: 'center' });
     }
 
     // INSTRUCTIONS with custom background color
