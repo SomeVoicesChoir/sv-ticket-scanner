@@ -129,7 +129,7 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateFriendly, d
 
     // DATE + TIME FRIENDLY - top right (opposite logo)
     if (dateFriendly) {
-        doc.setFontSize(12);
+        doc.setFontSize(16);
         doc.setTextColor(...darkColor);
         doc.setFont(undefined, 'normal');
         const dateLines = doc.splitTextToSize(dateFriendly, 80);
@@ -137,7 +137,7 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateFriendly, d
     }
 
     // EVENT NAME - slightly lower
-    doc.setFontSize(18);
+    doc.setFontSize(24);
     doc.setFont(undefined, 'bold');
     doc.setTextColor(...darkColor);
     const eventLines = doc.splitTextToSize(event, 180);
@@ -147,7 +147,7 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateFriendly, d
 
     // DOORS + PERFORMANCE TIME - under event name
     if (doorsPerformance) {
-        doc.setFontSize(12);
+        doc.setFontSize(14);
         doc.setFont(undefined, 'normal');
         doc.setTextColor(...darkColor);
         doc.text(doorsPerformance, 15, currentY);
@@ -156,7 +156,7 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateFriendly, d
 
     // TICKET TYPE + PRICE - under doors/performance
     if (ticketTypePrice) {
-        doc.setFontSize(12);
+        doc.setFontSize(14);
         doc.setFont(undefined, 'normal');
         doc.setTextColor(...darkColor);
         doc.text(ticketTypePrice, 15, currentY);
@@ -165,7 +165,7 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateFriendly, d
 
     // VENUE ADDRESS - after other details, clickable
     if (venueAddress) {
-        doc.setFontSize(12);
+        doc.setFontSize(14);
         doc.setFont(undefined, 'normal');
         doc.setTextColor(...darkColor);
         const addressLines = doc.splitTextToSize(venueAddress, 180);
