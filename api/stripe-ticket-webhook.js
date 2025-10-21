@@ -44,75 +44,50 @@ module.exports = async function handler(req, res) {
     }
 
     // Handle successful checkout
-    // In the checkout.session.completed handler, after getting the session:
-// // In the checkout.session.completed handler:
-if (event.type === 'checkout.session.completed') {
-    const session = event.data.object;
-    const metadata = session.metadata;
+    if (event.type === 'checkout.session.completed') {
+        const session = event.data.object;
+        const metadata = session.metadata;
 
-    if (!metadata.eventId) {
-        console.log('⏭️ Skipping - not a ticket purchase');
-        return res.status(200).json({ received: true, skipped: 'not a ticket' });
-    }
+        if (!metadata.eventId) {
+            console.log('⏭️ Skipping - not a ticket purchase');
+            return res.status(200).json({ received: true, skipped: 'not a ticket' });
+        }
 
-    try {
-        const quantity = parseInt(metadata.quantity);
-        
-        // ✅ Get the receipt number from the charge, with fallback to payment_intent
-        let receiptNumber = '';
-        if (session.payment_intent) {
-            try {
-                // Retrieve the payment intent to get the charge
-                const paymentIntent = await stripe.paymentIntents.retrieve(session.payment_intent);
-                
-                // Get the first charge from the payment intent
-                if (paymentIntent.charges && paymentIntent.charges.data.length > 0) {
-                    const charge = paymentIntent.charges.data[0];
-                    receiptNumber = charge.receipt_number || charge.id || session.payment_intent; // Use charge.id or payment_intent as fallback
-                } else {
-                    // No charges yet, use payment intent ID
-                    receiptNumber = session.payment_intent;
-                }
-            } catch (error) {
-                console.error('Error fetching receipt number:', error);
-                // Use payment intent ID as fallback
-                receiptNumber = session.payment_intent;
+        try {
+            const quantity = parseInt(metadata.quantity);
+            
+            // ✅ Use Session ID directly - much simpler!
+            console.log(`Session ID: ${session.id}`);
+            
+            // Create multiple ticket records (one per quantity)
+            const ticketPromises = [];
+            for (let i = 0; i < quantity; i++) {
+                ticketPromises.push(createTicketRecord({
+                    eventId: metadata.eventId,
+                    eventName: metadata.eventName,
+                    firstName: metadata.firstName,
+                    surname: metadata.surname,
+                    attendeeEmail: metadata.attendeeEmail,
+                    phone: metadata.phone,
+                    postcode: metadata.postcode,
+                    dateTime: metadata.dateTime,
+                    venueAddress: metadata.venueAddress,
+                    stripeSessionId: session.id, // ✅ This is what we'll use
+                    amountPaid: session.amount_total / 100,
+                    ticketNumber: i + 1,
+                    totalTickets: quantity,
+                    currency: metadata.currency || 'GBP'
+                }));
             }
-        }
-        
-        console.log(`Receipt/Invoice number: ${receiptNumber}`); // ✅ Add logging
-        
-        
-        // Create multiple ticket records (one per quantity)
-        const ticketPromises = [];
-        for (let i = 0; i < quantity; i++) {
-            ticketPromises.push(createTicketRecord({
-                eventId: metadata.eventId,
-                eventName: metadata.eventName,
-                firstName: metadata.firstName,
-                surname: metadata.surname,
-                attendeeEmail: metadata.attendeeEmail,
-                phone: metadata.phone,
-                postcode: metadata.postcode,
-                dateTime: metadata.dateTime,
-                venueAddress: metadata.venueAddress,
-                stripeSessionId: session.id,
-                invoiceNumber: receiptNumber, // ✅ Now contains the receipt number
-                amountPaid: session.amount_total / 100,
-                ticketNumber: i + 1,
-                totalTickets: quantity,
-                currency: metadata.currency || 'GBP'
-            }));
-        }
 
-        await Promise.all(ticketPromises);
-        console.log(`✅ Created ${quantity} tickets for event ${metadata.eventName}`);
+            await Promise.all(ticketPromises);
+            console.log(`✅ Created ${quantity} tickets for event ${metadata.eventName}`);
 
-    } catch (error) {
-        console.error('Error creating ticket records:', error);
-        return res.status(500).json({ error: error.message });
+        } catch (error) {
+            console.error('Error creating ticket records:', error);
+            return res.status(500).json({ error: error.message });
+        }
     }
-}
 
     return res.status(200).json({ received: true });
 };
@@ -135,8 +110,7 @@ async function createTicketRecord(ticketData) {
                 'Mobile Phone Number': ticketData.phone,
                 'Post Code': ticketData.postcode,
                 'Stripe Session ID': ticketData.stripeSessionId,
-                'Invoice Number': ticketData.invoiceNumber, // ✅ Add this
-                'Send Tickets Table': ticketData.invoiceNumber, // ✅ Add invoice number here too
+                'Send Tickets Table': ticketData.stripeSessionId, // ✅ Use Session ID for grouping
                 'Amount Paid': ticketData.amountPaid,
                 'Ticket Number': `${ticketData.ticketNumber} of ${ticketData.totalTickets}`,
                 'Status': 'Valid',
