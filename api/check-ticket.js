@@ -34,8 +34,8 @@ module.exports = async function handler(req, res) {
         const record = await response.json();
         const fields = record.fields;
 
-        // Get the ticket's event record IDs
-        const ticketEventIds = fields['Event'] || [];
+        // Get the ticket's event record IDs (field is called 'Event Name' in Tickets table)
+        const ticketEventIds = fields['Event Name'] || [];
         
         // Fetch the actual Event records to get their names
         let isCorrectEvent = false;
@@ -68,7 +68,7 @@ module.exports = async function handler(req, res) {
             success: true,
             ticket: {
                 name: fields['Name'] || 'Unknown',
-                event: fields['Event'] || [],
+                event: fields['Event Name'] || [],
                 checkedIn: isCheckedIn,
                 checkinTime: fields['Check-in Time'] || null,
                 checkinBy: fields['Check-in By'] || null,
