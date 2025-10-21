@@ -136,7 +136,7 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateFriendly, d
         doc.text(dateLines, 195, 20, { align: 'right' });
     }
 
-    // ✅ EVENT NAME - slightly lower (was 55, now 62)
+    // EVENT NAME - slightly lower
     doc.setFontSize(18);
     doc.setFont(undefined, 'bold');
     doc.setTextColor(...darkColor);
@@ -177,7 +177,7 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateFriendly, d
         }
     }
 
-    // ✅ CUSTOMER SECTION - higher (was 115, now 108)
+    // CUSTOMER SECTION
     doc.setTextColor(...darkColor);
     doc.setFontSize(12);
     doc.setFont(undefined, 'normal');
@@ -195,7 +195,7 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateFriendly, d
         doc.text(`Ticket ${ticketNumber}`, 15, 126);
     }
 
-    // ✅ QR CODE - higher (was 145, now 135)
+    // QR CODE
     const qrSize = 80;
     const qrX = (210 - qrSize) / 2;
     const qrY = 135;
@@ -207,9 +207,13 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateFriendly, d
     // QR Code
     doc.addImage(`data:image/png;base64,${qrImageBase64}`, 'PNG', qrX + 5, qrY + 5, qrSize - 10, qrSize - 10);
 
-    // ✅ REMOVED: Receipt number - no longer showing below QR code
+    // ✅ TICKET ID - directly below QR code
+    doc.setFontSize(8);
+    doc.setTextColor(180, 180, 180);
+    doc.setFont(undefined, 'normal');
+    doc.text(`Ticket ID: ${recordId}`, 105, qrY + qrSize + 8, { align: 'center' });
 
-    // ✅ ADMISSION INSTRUCTIONS - higher (was 240, now 228)
+    // ADMISSION INSTRUCTIONS
     if (admissionInstructions) {
         const instructionLines = doc.splitTextToSize(admissionInstructions, 160);
         const boxHeight = Math.max(15, (instructionLines.length * 5) + 10);
@@ -226,12 +230,6 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateFriendly, d
             doc.text(line, 105, instructY + (index * 5), { align: 'center' });
         });
     }
-
-    // FOOTER
-    doc.setFontSize(8);
-    doc.setTextColor(180, 180, 180);
-    doc.setFont(undefined, 'normal');
-    doc.text(`Ticket ID: ${recordId}`, 105, 280, { align: 'center' });
 
     // Return PDF as base64
     return doc.output('datauristring').split(',')[1];
