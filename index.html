@@ -443,9 +443,18 @@
                 const data = await response.json();
                 availableEvents = data.events;
                 
-                // Populate dropdown
-                eventSelect.innerHTML = '';
+                // ✅ DEDUPLICATE EVENTS BY NAME
+                const uniqueEventsMap = new Map();
                 availableEvents.forEach(event => {
+                    if (!uniqueEventsMap.has(event.name)) {
+                        uniqueEventsMap.set(event.name, event);
+                    }
+                });
+                const uniqueEvents = Array.from(uniqueEventsMap.values());
+                
+                // Populate dropdown with unique events only
+                eventSelect.innerHTML = '';
+                uniqueEvents.forEach(event => {
                     const option = document.createElement('option');
                     option.value = event.id;
                     option.textContent = event.name;
@@ -454,10 +463,10 @@
                 
                 // Restore previously selected event or select first
                 const savedEventId = localStorage.getItem('selected_event_id');
-                if (savedEventId && availableEvents.find(e => e.id === savedEventId)) {
+                if (savedEventId && uniqueEvents.find(e => e.id === savedEventId)) {
                     eventSelect.value = savedEventId;
-                } else if (availableEvents.length > 0) {
-                    eventSelect.value = availableEvents[0].id;
+                } else if (uniqueEvents.length > 0) {
+                    eventSelect.value = uniqueEvents[0].id;
                 }
                 
                 changeEvent();
