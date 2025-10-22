@@ -43,7 +43,7 @@ module.exports = async function handler(req, res) {
             id: record.id,
             name: record.fields['Event Name'] || 'Unnamed Event',
             displayName: record.fields['Display Name'] || record.fields['Event Name'] || 'Unnamed Event',
-            ticketTypePrice: record.fields['Ticket Type + Price'] || 'Standard', // ✅ Add this
+            ticketTypePrice: record.fields['Ticket Type + Price'] || 'Standard', // ✅ This is needed
             price: record.fields['Ticket Price'] || 0,
             stripePriceId: record.fields['Stripe Price ID'],
             dateTime: record.fields['Date + Time Friendly'] || '',
