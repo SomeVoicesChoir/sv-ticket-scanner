@@ -45,6 +45,13 @@ module.exports = async function handler(req, res) {
         // Build event names list for thank you message
         const eventNamesList = [...new Set(selectedTickets.map(t => t.eventName))].join(', ');
 
+        // Trim ticket data to essential fields only (stay under 500 chars)
+        const minimalTicketsData = selectedTickets.map(ticket => ({
+            eventId: ticket.eventId,
+            quantity: ticket.quantity,
+            ticketType: ticket.ticketType
+        }));
+
         // Create Stripe checkout session with multiple line items
         const session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
@@ -69,7 +76,7 @@ module.exports = async function handler(req, res) {
                 attendeeEmail: attendeeEmail,
                 phone: phone,
                 postcode: postcode,
-                ticketsData: JSON.stringify(selectedTickets),
+                ticketsData: JSON.stringify(minimalTicketsData),
                 totalQuantity: totalQuantity.toString(),
                 eventName: firstTicket.eventName,
                 dateTime: firstTicket.dateTime,
