@@ -48,40 +48,49 @@ module.exports = async function handler(req, res) {
         const session = event.data.object;
         const metadata = session.metadata;
 
-        if (!metadata.eventId) {
+        if (!metadata.eventName) {
             console.log('⏭️ Skipping - not a ticket purchase');
             return res.status(200).json({ received: true, skipped: 'not a ticket' });
         }
 
         try {
-            const quantity = parseInt(metadata.quantity);
+            // Parse the tickets data
+            const ticketsArray = JSON.parse(metadata.ticketsData);
             
-            // ✅ Use Session ID directly - much simpler!
-            console.log(`Session ID: ${session.id}`);
+            console.log(`Creating tickets for ${ticketsArray.length} ticket type(s)`);
             
-            // Create multiple ticket records (one per quantity)
+            // Calculate total tickets for numbering
+            const totalTickets = ticketsArray.reduce((sum, t) => sum + t.quantity, 0);
+            
+            // Create tickets for each type
             const ticketPromises = [];
-            for (let i = 0; i < quantity; i++) {
-                ticketPromises.push(createTicketRecord({
-                    eventId: metadata.eventId,
-                    eventName: metadata.eventName,
-                    firstName: metadata.firstName,
-                    surname: metadata.surname,
-                    attendeeEmail: metadata.attendeeEmail,
-                    phone: metadata.phone,
-                    postcode: metadata.postcode,
-                    dateTime: metadata.dateTime,
-                    venueAddress: metadata.venueAddress,
-                    stripeSessionId: session.id, // ✅ This is what we'll use
-                    amountPaid: session.amount_total / 100,
-                    ticketNumber: i + 1,
-                    totalTickets: quantity,
-                    currency: metadata.currency || 'GBP'
-                }));
-            }
+            let ticketNumber = 0;
+            
+            ticketsArray.forEach(ticketType => {
+                for (let i = 0; i < ticketType.quantity; i++) {
+                    ticketNumber++;
+                    ticketPromises.push(createTicketRecord({
+                        eventId: ticketType.eventId,
+                        eventName: metadata.eventName,
+                        firstName: metadata.firstName,
+                        surname: metadata.surname,
+                        attendeeEmail: metadata.attendeeEmail,
+                        phone: metadata.phone,
+                        postcode: metadata.postcode,
+                        dateTime: metadata.dateTime,
+                        venueAddress: metadata.venueAddress,
+                        stripeSessionId: session.id,
+                        amountPaid: session.amount_total / 100,
+                        ticketType: ticketType.ticketType,
+                        ticketNumber: ticketNumber,
+                        totalTickets: totalTickets,
+                        currency: metadata.currency || 'GBP'
+                    }));
+                }
+            });
 
             await Promise.all(ticketPromises);
-            console.log(`✅ Created ${quantity} tickets for event ${metadata.eventName}`);
+            console.log(`✅ Created ${ticketPromises.length} tickets total`);
 
         } catch (error) {
             console.error('Error creating ticket records:', error);
