@@ -16,7 +16,7 @@ module.exports = async function handler(req, res) {
         'Access-Control-Allow-Headers',
         'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
     );
-    
+
     if (req.method === 'OPTIONS') {
         res.status(200).end();
         return;
@@ -40,19 +40,20 @@ module.exports = async function handler(req, res) {
         const data = await response.json();
         
         const events = data.records.map(record => ({
-    id: record.id,
-    name: record.fields['Event Name'] || 'Unnamed Event',
-    displayName: record.fields['Display Name'] || record.fields['Event Name'], // ✅ Add this
-    price: record.fields['Ticket Price'] || 0,
-    stripePriceId: record.fields['Stripe Price ID'],
-    dateTime: record.fields['Date + Time Friendly'] || '',
-    doorsPerformance: record.fields['Doors + Performance Time'] || '', // ✅ Add this
-    venueAddress: record.fields['Venue Address'] || '',
-    ticketType: record.fields['Ticket Type'] || 'Standard',
-    currency: record.fields["Stripe 'default_price_data[currency]'"] || 'GBP',
-    allocation: record.fields['Allocation'] || 0,
-    ticketsRemaining: record.fields['Tickets Remaining'] || 0
-})).filter(event => event.stripePriceId); // ✅ Only filter out events without Price ID - keep sold out events
+            id: record.id,
+            name: record.fields['Event Name'] || 'Unnamed Event',
+            displayName: record.fields['Display Name'] || record.fields['Event Name'] || 'Unnamed Event',
+            ticketTypePrice: record.fields['Ticket Type + Price'] || 'Standard', // ✅ Add this
+            price: record.fields['Ticket Price'] || 0,
+            stripePriceId: record.fields['Stripe Price ID'],
+            dateTime: record.fields['Date + Time Friendly'] || '',
+            doorsPerformance: record.fields['Doors + Performance Time'] || '',
+            venueAddress: record.fields['Venue Address'] || '',
+            ticketType: record.fields['Ticket Type'] || 'Standard',
+            currency: record.fields["Stripe 'default_price_data[currency]'"] || 'GBP',
+            allocation: record.fields['Allocation'] || 0,
+            ticketsRemaining: record.fields['Tickets Remaining'] || 0
+        })).filter(event => event.stripePriceId);
 
         return res.status(200).json({ events });
 
