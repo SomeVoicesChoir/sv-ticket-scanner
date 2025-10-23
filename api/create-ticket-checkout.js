@@ -33,11 +33,18 @@ module.exports = async function handler(req, res) {
         // Calculate total tickets
         const totalQuantity = selectedTickets.reduce((sum, ticket) => sum + ticket.quantity, 0);
 
-        // Build Stripe line items from selected tickets
-        const lineItems = selectedTickets.map(ticket => ({
-            price: ticket.stripePriceId,
-            quantity: ticket.quantity
-        }));
+        // Build Stripe line items from selected tickets with custom names
+const lineItems = selectedTickets.map(ticket => ({
+  price_data: {
+    currency: ticket.currency.toLowerCase() || 'gbp',
+    unit_amount: Math.round(ticket.price * 100), // Convert to cents/pence
+    product_data: {
+      name: ticket.eventName, // Use the event name from Airtable
+      description: `${ticket.ticketType} - ${ticket.dateTime}`
+    }
+  },
+  quantity: ticket.quantity
+}));
 
         // Get first ticket for shared metadata
         const firstTicket = selectedTickets[0];
