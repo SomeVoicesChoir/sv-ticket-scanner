@@ -4,6 +4,7 @@
   "dependencies": {
     "jspdf": "^2.5.1",
     "node-fetch": "^2.7.0",
-    "stripe": "^14.0.0"
+    "stripe": "^14.0.0",
+    "airtable": "^0.12.2"
   }
 }
