@@ -1,4 +1,8 @@
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const Airtable = require('airtable');
+
+// Initialize Airtable
+const base = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY }).base(process.env.AIRTABLE_BASE_ID);
 
 module.exports = async function handler(req, res) {
     // Enable CORS
@@ -28,6 +32,37 @@ module.exports = async function handler(req, res) {
 
         if (!firstName || !surname || !attendeeEmail || !phone || !postcode) {
             return res.status(400).json({ error: 'Missing required fields' });
+        }
+
+        // BACKEND VALIDATION: Check ticket availability in Airtable
+        for (const ticket of selectedTickets) {
+            try {
+                const record = await base('Event').find(ticket.eventId);
+                const ticketsRemaining = record.get('Tickets Remaining');
+                
+                if (ticketsRemaining === undefined || ticketsRemaining === null) {
+                    return res.status(400).json({ 
+                        error: `Unable to verify ticket availability for ${ticket.eventName}` 
+                    });
+                }
+                
+                if (ticketsRemaining <= 0) {
+                    return res.status(400).json({ 
+                        error: `Sorry, ${ticket.eventName} is sold out.` 
+                    });
+                }
+                
+                if (ticket.quantity > ticketsRemaining) {
+                    return res.status(400).json({ 
+                        error: `Only ${ticketsRemaining} ticket(s) remaining for ${ticket.eventName}. You requested ${ticket.quantity}.` 
+                    });
+                }
+            } catch (airtableError) {
+                console.error('Airtable validation error:', airtableError);
+                return res.status(400).json({ 
+                    error: 'Unable to verify ticket availability. Please try again.' 
+                });
+            }
         }
 
         // Calculate total tickets
