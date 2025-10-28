@@ -84,7 +84,8 @@ module.exports = async function handler(req, res) {
                         ticketType: ticketType.ticketType,
                         ticketNumber: ticketNumber,
                         totalTickets: totalTickets,
-                        currency: metadata.currency || 'GBP'
+                        currency: metadata.currency || 'GBP',
+                        mailingListOptIn: metadata.mailingListOptIn === 'true'  // Add this line
                     }));
                 }
             });
@@ -123,7 +124,8 @@ async function createTicketRecord(ticketData) {
                 'Amount Paid': ticketData.amountPaid,
                 'Ticket Number': `${ticketData.ticketNumber} of ${ticketData.totalTickets}`,
                 'Status': 'Valid',
-                'Currency': ticketData.currency
+                'Currency': ticketData.currency,
+                'Mailing List Opt In': ticketData.mailingListOptIn  // Add this line
             }
         })
     });

@@ -127,7 +127,8 @@ module.exports = async function handler(req, res) {
                 dateTime: firstTicket.dateTime,
                 venueAddress: firstTicket.venueAddress,
                 currency: firstTicket.currency,
-                stripePriceId: firstTicket.stripePriceId
+                stripePriceId: firstTicket.stripePriceId,
+                mailingListOptIn: req.body.mailingListOptIn ? 'true' : 'false'  // Add this line
             }
         });
 
