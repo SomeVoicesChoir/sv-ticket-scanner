@@ -59,7 +59,7 @@ module.exports = async function handler(req, res) {
             
             console.log(`Creating tickets for ${ticketsArray.length} ticket type(s)`);
             
-            // Calculate total tickets for numbering
+            // Calculate total tickets for numbering (excluding companion)
             const totalTickets = ticketsArray.reduce((sum, t) => sum + t.quantity, 0);
             
             // Create tickets for each type
@@ -85,13 +85,41 @@ module.exports = async function handler(req, res) {
                         ticketNumber: ticketNumber,
                         totalTickets: totalTickets,
                         currency: metadata.currency || 'GBP',
-                        mailingListOptIn: metadata.mailingListOptIn === 'true'  // Add this line
+                        mailingListOptIn: metadata.mailingListOptIn === 'true'
                     }));
                 }
             });
 
             await Promise.all(ticketPromises);
             console.log(`✅ Created ${ticketPromises.length} tickets total`);
+
+            // Create companion ticket if requested
+            if (metadata.companionTicket === 'true' && metadata.companionTicketData) {
+                console.log('Creating companion ticket...');
+                const companionData = JSON.parse(metadata.companionTicketData);
+                
+                await createTicketRecord({
+                    eventId: companionData.eventId,
+                    eventName: metadata.eventName,
+                    firstName: metadata.firstName,
+                    surname: metadata.surname,
+                    attendeeEmail: metadata.attendeeEmail,
+                    phone: metadata.phone,
+                    postcode: metadata.postcode,
+                    dateTime: metadata.dateTime,
+                    venueAddress: metadata.venueAddress,
+                    stripeSessionId: session.id,
+                    amountPaid: 0, // Free ticket
+                    ticketType: companionData.ticketType, // Will be "ACCESS COMPANION"
+                    ticketNumber: null, // Companion tickets don't get numbered
+                    totalTickets: null,
+                    currency: metadata.currency || 'GBP',
+                    mailingListOptIn: metadata.mailingListOptIn === 'true',
+                    isCompanion: true // Flag for companion ticket
+                });
+                
+                console.log('✅ Created companion ticket');
+            }
 
         } catch (error) {
             console.error('Error creating ticket records:', error);
@@ -105,29 +133,39 @@ module.exports = async function handler(req, res) {
 async function createTicketRecord(ticketData) {
     const url = `https://api.airtable.com/v0/${CONFIG.baseId}/${CONFIG.tableId}`;
     
+    // Build fields object
+    const fields = {
+        'Event Name': [ticketData.eventId],
+        'First Name': ticketData.firstName,
+        'Surname': ticketData.surname,
+        'Email': ticketData.attendeeEmail,
+        'Mobile Phone Number': ticketData.phone,
+        'Post Code': ticketData.postcode,
+        'Stripe Session ID': ticketData.stripeSessionId,
+        'Amount Paid': ticketData.amountPaid,
+        'Status': 'Valid',
+        'Currency': ticketData.currency,
+        'Mailing List Opt In': ticketData.mailingListOptIn
+    };
+
+    // Only add ticket number if it's not a companion ticket
+    if (ticketData.ticketNumber !== null && ticketData.totalTickets !== null) {
+        fields['Ticket Number'] = `${ticketData.ticketNumber} of ${ticketData.totalTickets}`;
+    }
+
+    // If your Tickets table has a "Ticket Type" field, add it
+    // This will preserve "ACCESS COMPANION" for companion tickets
+    if (ticketData.ticketType) {
+        fields['Ticket Type'] = ticketData.ticketType;
+    }
+    
     const response = await fetch(url, {
         method: 'POST',
         headers: {
             'Authorization': `Bearer ${CONFIG.apiKey}`,
             'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-            fields: {
-                'Event Name': [ticketData.eventId],
-                'First Name': ticketData.firstName,
-                'Surname': ticketData.surname,
-                'Email': ticketData.attendeeEmail,
-                'Mobile Phone Number': ticketData.phone,
-                'Post Code': ticketData.postcode,
-                'Stripe Session ID': ticketData.stripeSessionId,
-                // 'Send Tickets Table' will be populated by Airtable automation
-                'Amount Paid': ticketData.amountPaid,
-                'Ticket Number': `${ticketData.ticketNumber} of ${ticketData.totalTickets}`,
-                'Status': 'Valid',
-                'Currency': ticketData.currency,
-                'Mailing List Opt In': ticketData.mailingListOptIn  // Add this line
-            }
-        })
+        body: JSON.stringify({ fields })
     });
 
     if (!response.ok) {
