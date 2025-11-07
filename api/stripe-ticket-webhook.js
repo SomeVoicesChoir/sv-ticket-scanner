@@ -135,7 +135,7 @@ async function createTicketRecord(ticketData) {
     
     // Build fields object
     const fields = {
-        'Event Name': [ticketData.eventId],
+        'Event Name': [ticketData.eventId], // ✅ This link will pull Ticket Type via lookup
         'First Name': ticketData.firstName,
         'Surname': ticketData.surname,
         'Email': ticketData.attendeeEmail,
@@ -151,12 +151,6 @@ async function createTicketRecord(ticketData) {
     // Only add ticket number if it's not a companion ticket
     if (ticketData.ticketNumber !== null && ticketData.totalTickets !== null) {
         fields['Ticket Number'] = `${ticketData.ticketNumber} of ${ticketData.totalTickets}`;
-    }
-
-    // If your Tickets table has a "Ticket Type" field, add it
-    // This will preserve "ACCESS COMPANION" for companion tickets
-    if (ticketData.ticketType) {
-        fields['Ticket Type'] = ticketData.ticketType;
     }
     
     const response = await fetch(url, {
