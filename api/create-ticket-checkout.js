@@ -24,7 +24,17 @@ module.exports = async function handler(req, res) {
     }
 
     try {
-        const { selectedTickets, firstName, surname, attendeeEmail, phone, postcode } = req.body;
+        const { 
+            selectedTickets, 
+            firstName, 
+            surname, 
+            attendeeEmail, 
+            phone, 
+            postcode,
+            mailingListOptIn,
+            companionTicket,
+            companionTicketDetails
+        } = req.body;
 
         if (!selectedTickets || selectedTickets.length === 0) {
             return res.status(400).json({ error: 'No tickets selected' });
@@ -84,6 +94,25 @@ module.exports = async function handler(req, res) {
             quantity: ticket.quantity
         }));
 
+        // Add companion ticket if requested
+        if (companionTicket && companionTicketDetails) {
+            lineItems.push({
+                price_data: {
+                    currency: companionTicketDetails.currency.toLowerCase() || 'gbp',
+                    unit_amount: 0, // Free ticket
+                    product_data: {
+                        name: companionTicketDetails.eventName,
+                        description: `${companionTicketDetails.ticketType} - ${companionTicketDetails.dateTime}`,
+                        metadata: {
+                            original_price_id: companionTicketDetails.stripePriceId,
+                            is_companion: 'true'
+                        }
+                    }
+                },
+                quantity: 1
+            });
+        }
+
         // Get first ticket for shared metadata
         const firstTicket = selectedTickets[0];
 
@@ -128,7 +157,13 @@ module.exports = async function handler(req, res) {
                 venueAddress: firstTicket.venueAddress,
                 currency: firstTicket.currency,
                 stripePriceId: firstTicket.stripePriceId,
-                mailingListOptIn: req.body.mailingListOptIn ? 'true' : 'false'  // Add this line
+                mailingListOptIn: mailingListOptIn ? 'true' : 'false',
+                // Add companion ticket metadata
+                companionTicket: companionTicket ? 'true' : 'false',
+                companionTicketData: companionTicket ? JSON.stringify({
+                    eventId: companionTicketDetails.eventId,
+                    ticketType: companionTicketDetails.ticketType
+                }) : ''
             }
         });
 
