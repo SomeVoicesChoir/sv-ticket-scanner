@@ -1,0 +1,106 @@
+// Get the record that triggered this
+let inputConfig = input.config();
+let recordId = inputConfig.recordId;
+let sessionId = inputConfig.stripeSessionId;
+
+console.log("Working with record:", recordId, "Session:", sessionId);
+
+// Get tables
+let ticketsTable = base.getTable("Tickets");
+let sendTicketsTable = base.getTable("Send Tickets");
+
+// STEP 0: Wait for QR Code to be generated (poll up to 10 seconds)
+console.log('⏳ Waiting for QR Code to be generated...');
+let qrFound = false;
+let attempts = 0;
+let maxAttempts = 10; // 10 attempts = ~10 seconds
+
+while (!qrFound && attempts < maxAttempts) {
+    let record = await ticketsTable.selectRecordAsync(recordId);
+    let qrCodeField = record.getCellValue('QR Code Image');
+    
+    if (qrCodeField && qrCodeField.length > 0) {
+        qrFound = true;
+        console.log('✅ QR Code found!');
+    } else {
+        attempts++;
+        let waitStart = Date.now();
+        while (Date.now() - waitStart < 1000) {} // Wait 1 second between checks
+    }
+}
+
+if (!qrFound) {
+    console.log('❌ QR Code not found after 10 seconds - STOPPING');
+    await ticketsTable.updateRecordAsync(recordId, {
+        'PDF Generation Failed': true
+    });
+    throw new Error('QR Code generation failed');
+}
+
+// STEP 1: Generate the PDF
+console.log('📄 Calling API to generate PDF...');
+let response = await fetch('https://sv-ticket-scanner.vercel.app/api/generate-ticket', {
+    method: 'POST',
+    headers: {
+        'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+        recordId: recordId
+    })
+});
+
+let result = await response.json();
+
+if (result.success) {
+    console.log('✅ PDF generation initiated');
+} else {
+    console.log('❌ API Error:', result.error);
+    throw new Error('PDF generation API failed');
+}
+
+// STEP 2: Wait 12 seconds for the PDF to be created via webhook
+console.log('⏳ Waiting 12 seconds for PDF to be created...');
+let start = Date.now();
+while (Date.now() - start < 12000) {} // 12 second wait
+
+// STEP 3: Verify the PDF was created
+let record = await ticketsTable.selectRecordAsync(recordId);
+let pdfField = record.getCellValue('PDF Ticket');
+
+if (!pdfField) {
+    console.log('⚠️ PDF not found after 12 seconds - STOPPING');
+    // Update a field to trigger fallback/retry automation
+    await ticketsTable.updateRecordAsync(recordId, {
+        'PDF Generation Failed': true
+    });
+    throw new Error('PDF verification failed - email will not be sent');
+}
+
+console.log('✅ PDF verified successfully!');
+
+// STEP 4: Now proceed to link to Send Tickets table
+console.log('📧 Linking to Send Tickets table...');
+
+// Find or create the Send Tickets record with this Session ID
+let query = await sendTicketsTable.selectRecordsAsync();
+let matchingRecord = query.records.find(r => 
+    r.name === sessionId
+);
+
+let sendTicketRecordId;
+if (matchingRecord) {
+    sendTicketRecordId = matchingRecord.id;
+    console.log("Found existing Send Tickets record:", sendTicketRecordId);
+} else {
+    sendTicketRecordId = await sendTicketsTable.createRecordAsync({
+        "Stripe Session ID": sessionId
+    });
+    console.log("Created new Send Tickets record:", sendTicketRecordId);
+}
+
+// Update the ticket record to link to Send Tickets
+await ticketsTable.updateRecordAsync(recordId, {
+    "Send Tickets Table": [{id: sendTicketRecordId}]
+});
+
+console.log(`✅ Ticket linked to Send Tickets - email will be triggered`);
