@@ -115,13 +115,13 @@ module.exports = async function handler(req, res) {
                     dateTime: metadata.dateTime,
                     venueAddress: metadata.venueAddress,
                     stripeSessionId: session.id,
-                    amountPaid: 0, // Free ticket
-                    ticketType: companionData.ticketType, // Will be "ACCESS COMPANION"
-                    ticketNumber: null, // Companion tickets don't get numbered
+                    amountPaid: 0,
+                    ticketType: companionData.ticketType,
+                    ticketNumber: null,
                     totalTickets: null,
                     currency: metadata.currency || 'GBP',
                     mailingListOptIn: metadata.mailingListOptIn === 'true',
-                    isCompanion: true // Flag for companion ticket
+                    isCompanion: true
                 });
                 
                 console.log('✅ Created companion ticket');
@@ -136,7 +136,6 @@ module.exports = async function handler(req, res) {
     return res.status(200).json({ received: true });
 };
 
-// ✅ NEW: Function to create Send Tickets record
 async function createSendTicketsRecord(stripeSessionId) {
     const url = `https://api.airtable.com/v0/${CONFIG.baseId}/${CONFIG.sendTicketsTableId}`;
     
@@ -164,9 +163,8 @@ async function createSendTicketsRecord(stripeSessionId) {
 async function createTicketRecord(ticketData) {
     const url = `https://api.airtable.com/v0/${CONFIG.baseId}/${CONFIG.tableId}`;
     
-    // Build fields object
     const fields = {
-        'Event Name': [ticketData.eventId], // ✅ This link will pull Ticket Type via lookup
+        'Event Name': [ticketData.eventId],
         'First Name': ticketData.firstName,
         'Surname': ticketData.surname,
         'Email': ticketData.attendeeEmail,
@@ -179,7 +177,6 @@ async function createTicketRecord(ticketData) {
         'Mailing List Opt In': ticketData.mailingListOptIn
     };
 
-    // Only add ticket number if it's not a companion ticket
     if (ticketData.ticketNumber !== null && ticketData.totalTickets !== null) {
         fields['Ticket Number'] = `${ticketData.ticketNumber} of ${ticketData.totalTickets}`;
     }
@@ -200,15 +197,3 @@ async function createTicketRecord(ticketData) {
 
     return await response.json();
 }
-```
-
-**Key changes:**
-1. ✅ Added `sendTicketsTableId` to CONFIG (you'll need to add this to your `.env` file)
-2. ✅ Created new `createSendTicketsRecord()` function
-3. ✅ Calls it BEFORE creating any tickets
-4. ✅ Order is now: Send Tickets record → Individual tickets → Companion ticket
-
-**What you need to do:**
-Add to your `.env` or Vercel environment variables:
-```
-AIRTABLE_SEND_TICKETS_TABLE_ID=tblXXXXXXXXXX
