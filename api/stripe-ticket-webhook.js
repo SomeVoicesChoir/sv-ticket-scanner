@@ -2,7 +2,7 @@ const fetch = require('node-fetch');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 // ✅ CRITICAL: Tell Vercel to NOT parse the body - we need raw bytes for signature verification
-export const config = {
+exports.config = {
     api: {
         bodyParser: false,
     },
@@ -11,7 +11,7 @@ export const config = {
 const CONFIG = {
     baseId: process.env.AIRTABLE_BASE_ID,
     tableId: process.env.AIRTABLE_TABLE_ID,
-    sendTicketsTableId: process.env.AIRTABLE_SEND_TICKETS_TABLE_ID, // ✅ NEW: Add this to your .env
+    sendTicketsTableId: process.env.AIRTABLE_SEND_TICKETS_TABLE_ID,
     apiKey: process.env.AIRTABLE_API_KEY,
     webhookSecret: process.env.STRIPE_TICKET_WEBHOOK_SECRET
 };
