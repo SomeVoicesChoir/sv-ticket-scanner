@@ -2,9 +2,10 @@
   "name": "sv-ticket-generator",
   "version": "1.0.0",
   "dependencies": {
+    "airtable": "^0.12.2",
     "jspdf": "^2.5.1",
+    "next": "^16.1.0",
     "node-fetch": "^2.7.0",
-    "stripe": "^14.0.0",
-    "airtable": "^0.12.2"
+    "stripe": "^14.0.0"
   }
 }
