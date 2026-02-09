@@ -19,10 +19,25 @@
     </div>
 
     <form id="ticket-form">
+        <!-- SHOW SELECTOR -->
         <div class="form-group">
-            <label for="event-select">Select Event Date & Time *</label>
-            <select id="event-select" required>
+            <label for="show-select">Select Event *</label>
+            <select id="show-select" required>
                 <option value="">Loading events...</option>
+            </select>
+        </div>
+
+        <!-- SHOW INFO (image + description side by side) -->
+        <div id="show-info" style="display: none; align-items: flex-start; gap: 12px; padding: 12px; background: #f5f5f5; border-radius: 8px; margin: -10px 0 20px 0;">
+            <img id="show-image" src="" alt="" style="display: none; width: 120px; height: 120px; object-fit: cover; border-radius: 6px; flex-shrink: 0;">
+            <div id="show-description" style="display: none; font-size: 16px; color: #333; line-height: 1.5;"></div>
+        </div>
+
+        <!-- DATE/TIME SELECTOR (dependent on show) -->
+        <div class="form-group" id="event-select-group" style="display: none;">
+            <label for="event-select">Select Date & Time *</label>
+            <select id="event-select" required>
+                <option value="">Select a date & time...</option>
             </select>
         </div>
 
@@ -342,6 +357,7 @@ const API_BASE = 'https://sv-ticket-scanner.vercel.app/api';
 const STRIPE_PUBLIC_KEY = 'pk_live_e3BY9meg9xi16XR7UQ211bv6';
 const stripe = Stripe(STRIPE_PUBLIC_KEY);
 let eventsData = [];
+let selectedShowName = '';
 let selectedEventName = '';
 let ticketQuantities = {};
 let needsCompanionTicket = false;
@@ -353,20 +369,16 @@ async function loadEvents() {
         const data = await response.json();
         eventsData = data.events;
         
-        const uniqueEventsMap = new Map();
-        data.events.forEach(function(event) {
-            if (!uniqueEventsMap.has(event.name)) {
-                uniqueEventsMap.set(event.name, event);
-            }
-        });
-        const uniqueEvents = Array.from(uniqueEventsMap.values());
-        const select = document.getElementById('event-select');
-        select.innerHTML = '<option value="">Select an event date & time...</option>';
-        uniqueEvents.forEach(function(event) {
+        // Get unique show names
+        const showNames = [...new Set(data.events.map(function(event) { return event.showName; }))].filter(Boolean);
+        
+        const showSelect = document.getElementById('show-select');
+        showSelect.innerHTML = '<option value="">Select an event...</option>';
+        showNames.forEach(function(showName) {
             const option = document.createElement('option');
-            option.value = event.name;
-            option.textContent = event.name;
-            select.appendChild(option);
+            option.value = showName;
+            option.textContent = showName;
+            showSelect.appendChild(option);
         });
     } catch (error) {
         console.error('Error loading events:', error);
@@ -374,6 +386,92 @@ async function loadEvents() {
     }
 }
 
+// SHOW SELECTOR — populates date/time dropdown
+document.getElementById('show-select').addEventListener('change', function() {
+    selectedShowName = this.value;
+    const eventSelectGroup = document.getElementById('event-select-group');
+    const eventSelect = document.getElementById('event-select');
+    
+    // Reset everything downstream
+    resetFromDateLevel();
+    
+    if (selectedShowName) {
+        // Get unique event names (date/times) for this show
+        const showEvents = eventsData.filter(function(event) { return event.showName === selectedShowName; });
+        const uniqueEventNames = [...new Set(showEvents.map(function(event) { return event.name; }))];
+        
+        eventSelect.innerHTML = '<option value="">Select a date & time...</option>';
+        uniqueEventNames.forEach(function(eventName) {
+            const option = document.createElement('option');
+            option.value = eventName;
+            option.textContent = eventName;
+            eventSelect.appendChild(option);
+        });
+        
+        // If there's only one date/time, auto-select it
+        if (uniqueEventNames.length === 1) {
+            eventSelect.value = uniqueEventNames[0];
+            eventSelect.dispatchEvent(new Event('change'));
+        }
+        
+        // Show info (image + description)
+        const showInfoDiv = document.getElementById('show-info');
+        const showImage = document.getElementById('show-image');
+        const showDescDiv = document.getElementById('show-description');
+        const showEvent = showEvents[0];
+
+        if (showEvent && (showEvent.showDescription || showEvent.showImage)) {
+            showInfoDiv.style.display = 'flex';
+
+            if (showEvent.showImage) {
+                showImage.src = showEvent.showImage;
+                showImage.alt = selectedShowName;
+                showImage.style.display = 'block';
+            } else {
+                showImage.style.display = 'none';
+            }
+
+            if (showEvent.showDescription) {
+                showDescDiv.textContent = showEvent.showDescription;
+                showDescDiv.style.display = 'block';
+            } else {
+                showDescDiv.style.display = 'none';
+            }
+        } else {
+            showInfoDiv.style.display = 'none';
+        }
+        
+        eventSelectGroup.style.display = 'block';
+    } else {
+        eventSelectGroup.style.display = 'none';
+    }
+});
+
+function resetFromDateLevel() {
+    selectedEventName = '';
+    ticketQuantities = {};
+    needsCompanionTicket = false;
+    hasAccessibleTicket = false;
+    
+    document.getElementById('event-select').innerHTML = '<option value="">Select a date & time...</option>';
+    document.getElementById('ticket-selection-group').style.display = 'none';
+    document.getElementById('ticket-types-list').innerHTML = '';
+    document.getElementById('event-details').style.display = 'none';
+    document.getElementById('booking-form-fields').style.display = 'none';
+    document.getElementById('total-price').style.display = 'none';
+    document.getElementById('total-price').textContent = '';
+    document.getElementById('sticky-total-bar').style.display = 'none';
+    document.getElementById('progress-indicator').style.display = 'none';
+    document.getElementById('companion-ticket-section').style.display = 'none';
+    document.getElementById('companion-ticket-checkbox').checked = false;
+    document.getElementById('show-info').style.display = 'none';
+    
+    document.getElementById('step-1').classList.remove('completed');
+    document.getElementById('step-2').classList.remove('active', 'completed');
+    document.getElementById('step-3').classList.remove('active');
+}
+
+// DATE/TIME SELECTOR — populates ticket types
 document.getElementById('event-select').addEventListener('change', function() {
     selectedEventName = this.value;
     const ticketSelectionGroup = document.getElementById('ticket-selection-group');
@@ -387,6 +485,7 @@ document.getElementById('event-select').addEventListener('change', function() {
     bookingFormFields.style.display = 'none';
     totalPriceDiv.style.display = 'none';
     totalPriceDiv.textContent = '';
+    document.getElementById('sticky-total-bar').style.display = 'none';
     
     if (selectedEventName) {
         const ticketOptions = eventsData.filter(function(event) { return event.name === selectedEventName; });
@@ -405,7 +504,6 @@ document.getElementById('event-select').addEventListener('change', function() {
             const ticketTypeLower = (event.ticketType || '').toLowerCase();
             const ticketTypePriceLower = (event.ticketTypePrice || '').toLowerCase();
             if (ticketTypeLower.includes('companion') || ticketTypePriceLower.includes('companion')) {
-                // Skip rendering this ticket type for customers
                 return;
             }
             
@@ -482,12 +580,10 @@ document.getElementById('event-select').addEventListener('change', function() {
 function checkForAccessibleTickets() {
     hasAccessibleTicket = false;
     
-    // Check if any selected ticket is accessible
     for (let eventId in ticketQuantities) {
         if (ticketQuantities[eventId] > 0) {
             const event = eventsData.find(function(e) { return e.id === eventId; });
             if (event) {
-                // Check if ticket type contains 'accessible' or 'wheelchair' (case insensitive)
                 const ticketType = (event.ticketType || '').toLowerCase();
                 const ticketTypePrice = (event.ticketTypePrice || '').toLowerCase();
                 if (ticketType.includes('accessible') || ticketType.includes('wheelchair') ||
@@ -499,7 +595,6 @@ function checkForAccessibleTickets() {
         }
     }
     
-    // Show/hide companion ticket section
     const companionSection = document.getElementById('companion-ticket-section');
     const companionNote = document.getElementById('companion-note');
     
@@ -639,7 +734,6 @@ function updateTotalPrice() {
         const currencySymbol = getCurrencySymbol(currency);
         let priceText = 'Total: ' + currencySymbol + totalPrice.toFixed(2) + ' for ' + totalTickets + ' ticket' + (totalTickets > 1 ? 's' : '');
         
-        // Add companion ticket info if selected
         if (needsCompanionTicket && hasAccessibleTicket) {
             priceText += ' + 1 free companion ticket';
         }
@@ -715,9 +809,7 @@ document.getElementById('ticket-form').addEventListener('submit', async function
         companionTicket: needsCompanionTicket && hasAccessibleTicket
     };
     
-    // If companion ticket is needed, find it and add details
     if (needsCompanionTicket && hasAccessibleTicket && selectedTickets.length > 0) {
-        // Find the companion ticket from eventsData
         const companionTicketEvent = eventsData.find(function(e) {
             const ticketTypeLower = (e.ticketType || '').toLowerCase();
             const ticketTypePriceLower = (e.ticketTypePrice || '').toLowerCase();
