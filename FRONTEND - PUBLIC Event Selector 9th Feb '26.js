@@ -368,6 +368,7 @@ async function loadEvents() {
         const response = await fetch(API_BASE + '/get-events');
         const data = await response.json();
         eventsData = data.events;
+        eventsData = eventsData.filter(function(event) { return event.eventType !== 'Member Event'; });
         
         // Get unique show names
         const showNames = [...new Set(data.events.map(function(event) { return event.showName; }))].filter(Boolean);
