@@ -380,6 +380,15 @@ async function loadEvents() {
             option.textContent = showName;
             showSelect.appendChild(option);
         });
+
+        // Check for pre-selected event in URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const preselectedEvent = urlParams.get('event');
+        if (preselectedEvent) {
+            const showSelect = document.getElementById('show-select');
+            showSelect.value = preselectedEvent;
+            showSelect.dispatchEvent(new Event('change'));
+        }
     } catch (error) {
         console.error('Error loading events:', error);
         document.getElementById('error-message').textContent = 'Failed to load events. Please refresh the page.';

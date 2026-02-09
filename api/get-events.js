@@ -56,6 +56,7 @@ module.exports = async function handler(req, res) {
             eventType: record.fields['Public or Member Event'] || '',
             currency: record.fields["Stripe 'default_price_data[currency]'"] || 'GBP',
             allocation: record.fields['Allocation'] || 0,
+            maxTickets: record.fields['Max Tickets Per Purchase'] || 6,
             ticketsRemaining: record.fields['Tickets Remaining'] || 0
         })).filter(event => event.stripePriceId);
 

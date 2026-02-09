@@ -45,7 +45,7 @@
             <label>How many tickets would you like?</label>
             <div id="ticket-types-list" style="margin-top: 10px;"></div>
             <div style="margin-top: 10px; padding: 10px; background: #fff3cd; border-radius: 4px; font-size: 14px;">
-                <strong>Maximum 4 tickets per purchase</strong>
+                <span id="max-tickets-message"><strong>Maximum 4 tickets per purchase</strong></span>
                 <span id="companion-note" style="display: none;"><br>(Companion tickets do not count towards this limit)</span>
             </div>
         </div>
@@ -368,10 +368,11 @@ async function loadEvents() {
         const response = await fetch(API_BASE + '/get-events');
         const data = await response.json();
         eventsData = data.events;
+        // Filter out member-only events so they don't appear on the public ticket page
         eventsData = eventsData.filter(function(event) { return event.eventType !== 'Member Event'; });
         
         // Get unique show names
-        const showNames = [...new Set(data.events.map(function(event) { return event.showName; }))].filter(Boolean);
+        const showNames = [...new Set(eventsData.map(function(event) { return event.showName; }))].filter(Boolean);
         
         const showSelect = document.getElementById('show-select');
         showSelect.innerHTML = '<option value="">Select an event...</option>';
@@ -381,6 +382,15 @@ async function loadEvents() {
             option.textContent = showName;
             showSelect.appendChild(option);
         });
+
+        // Check for pre-selected event in URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const preselectedEvent = urlParams.get('event');
+        if (preselectedEvent) {
+            const showSelect = document.getElementById('show-select');
+            showSelect.value = preselectedEvent;
+            showSelect.dispatchEvent(new Event('change'));
+        }
     } catch (error) {
         console.error('Error loading events:', error);
         document.getElementById('error-message').textContent = 'Failed to load events. Please refresh the page.';
@@ -408,12 +418,6 @@ document.getElementById('show-select').addEventListener('change', function() {
             option.textContent = eventName;
             eventSelect.appendChild(option);
         });
-        
-        // If there's only one date/time, auto-select it
-        if (uniqueEventNames.length === 1) {
-            eventSelect.value = uniqueEventNames[0];
-            eventSelect.dispatchEvent(new Event('change'));
-        }
         
         // Show info (image + description)
         const showInfoDiv = document.getElementById('show-info');
@@ -498,6 +502,9 @@ document.getElementById('event-select').addEventListener('change', function() {
             document.getElementById('event-doors-performance').textContent = firstEvent.doorsPerformance || '';
             detailsDiv.style.display = 'block';
             document.getElementById('progress-indicator').style.display = 'block';
+            // Update max tickets message based on event setting
+            var maxTickets = firstEvent.maxTickets || 4;
+            document.getElementById('max-tickets-message').innerHTML = '<strong>Maximum ' + maxTickets + ' ticket' + (maxTickets > 1 ? 's' : '') + ' per purchase</strong>';
         }
         
         ticketOptions.forEach(function(event) {
@@ -610,10 +617,17 @@ function checkForAccessibleTickets() {
     }
 }
 
+// Helper function to get max tickets for the currently selected event
+function getMaxTickets() {
+    var currentEvent = eventsData.find(function(e) { return e.name === selectedEventName; });
+    return (currentEvent && currentEvent.maxTickets) ? currentEvent.maxTickets : 4;
+}
+
 function increaseQuantity(eventId) {
     let totalTickets = Object.values(ticketQuantities).reduce(function(sum, qty) { return sum + qty; }, 0);
-    if (totalTickets >= 4) {
-        alert('Maximum 4 tickets per purchase');
+    var maxTickets = getMaxTickets();
+    if (totalTickets >= maxTickets) {
+        alert('Maximum ' + maxTickets + ' ticket' + (maxTickets > 1 ? 's' : '') + ' per purchase');
         return;
     }
     const event = eventsData.find(function(e) { return e.id === eventId; });
@@ -648,7 +662,8 @@ function updateButtons(eventId) {
     if (plusBtn) {
         const event = eventsData.find(function(e) { return e.id === eventId; });
         let totalTickets = Object.values(ticketQuantities).reduce(function(sum, qty) { return sum + qty; }, 0);
-        plusBtn.disabled = totalTickets >= 4 || ticketQuantities[eventId] >= event.ticketsRemaining;
+        var maxTickets = getMaxTickets();
+        plusBtn.disabled = totalTickets >= maxTickets || ticketQuantities[eventId] >= event.ticketsRemaining;
     }
 }
 
