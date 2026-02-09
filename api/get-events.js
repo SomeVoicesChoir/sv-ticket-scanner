@@ -53,6 +53,7 @@ module.exports = async function handler(req, res) {
             doorsPerformance: record.fields['Doors + Performance Time'] || '',
             venueAddress: record.fields['Venue Address'] || '',
             ticketType: record.fields['Ticket Type'] || 'Standard',
+            eventType: record.fields['Public or Member Event'] || '',
             currency: record.fields["Stripe 'default_price_data[currency]'"] || 'GBP',
             allocation: record.fields['Allocation'] || 0,
             ticketsRemaining: record.fields['Tickets Remaining'] || 0
