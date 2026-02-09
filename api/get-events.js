@@ -42,11 +42,11 @@ module.exports = async function handler(req, res) {
         const events = data.records.map(record => ({
             id: record.id,
             name: record.fields['Event Name'] || 'Unnamed Event',
-            displayName: record.fields['Display Name'] || record.fields['Event Name'] || 'Unnamed Event',
             showName: record.fields['Event Name (input here)'] || '',
             showDescription: record.fields['Event Description'] || '',
-showImage: (record.fields['Event Image'] && record.fields['Event Image'][0]) ? record.fields['Event Image'][0].url : '',
-            ticketTypePrice: record.fields['Ticket Type + Price'] || 'Standard', // ✅ This is needed
+            showImage: (record.fields['Event Image'] && record.fields['Event Image'][0]) ? record.fields['Event Image'][0].url : '',
+            displayName: record.fields['Display Name'] || record.fields['Event Name'] || 'Unnamed Event',
+            ticketTypePrice: record.fields['Ticket Type + Price'] || 'Standard',
             price: record.fields['Ticket Price'] || 0,
             stripePriceId: record.fields['Stripe Price ID'],
             dateTime: record.fields['Date + Time Friendly'] || '',
