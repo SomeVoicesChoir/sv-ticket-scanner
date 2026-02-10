@@ -28,9 +28,9 @@
         </div>
 
         <!-- SHOW INFO (image + description side by side) -->
-        <div id="show-info" style="display: none; align-items: flex-start; gap: 12px; padding: 12px; background: #f5f5f5; border-radius: 8px; margin: -10px 0 20px 0;">
-            <img id="show-image" src="" alt="" style="display: none; width: 120px; height: 120px; object-fit: cover; border-radius: 6px; flex-shrink: 0;">
-            <div id="show-description" style="display: none; font-size: 16px; color: #333; line-height: 1.5;"></div>
+        <div id="show-info" style="display: none; flex-direction: column; align-items: center; gap: 12px; padding: 12px; background: #f5f5f5; border-radius: 8px; margin: -10px 0 20px 0;">
+        <img id="show-image" src="" alt="" style="display: none; width: 260px; height: 260px; object-fit: cover; border-radius: 6px;">
+        <div id="show-description" style="display: none; font-size: 16px; color: #333; line-height: 1.5; text-align: center;"></div>
         </div>
 
         <!-- DATE/TIME SELECTOR (dependent on show) -->
@@ -42,7 +42,7 @@
         </div>
 
         <div class="form-group" id="ticket-selection-group" style="display: none;">
-            <label>How many tickets would you like?</label>
+            <label>Select your tickets</label>
             <div id="ticket-types-list" style="margin-top: 10px;"></div>
             <div style="margin-top: 10px; padding: 10px; background: #fff3cd; border-radius: 4px; font-size: 14px;">
                 <span id="max-tickets-message"><strong>Maximum 4 tickets per purchase</strong></span>
@@ -437,7 +437,7 @@ document.getElementById('show-select').addEventListener('change', function() {
             }
 
             if (showEvent.showDescription) {
-                showDescDiv.textContent = showEvent.showDescription;
+                showDescDiv.innerHTML = showEvent.showDescription.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" style="color: #ea3e28; text-decoration: underline;">$1</a>').replace(/\n/g, '<br>');
                 showDescDiv.style.display = 'block';
             } else {
                 showDescDiv.style.display = 'none';
