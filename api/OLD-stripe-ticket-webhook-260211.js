@@ -1,7 +1,7 @@
 const fetch = require('node-fetch');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
-// CRITICAL: Tell Vercel to NOT parse the body - we need raw bytes for signature verification
+// ✅ CRITICAL: Tell Vercel to NOT parse the body - we need raw bytes for signature verification
 exports.config = {
     api: {
         bodyParser: false,
@@ -23,7 +23,7 @@ module.exports = async function handler(req, res) {
 
     const sig = req.headers['stripe-signature'];
     
-    // Get the raw body as a buffer
+    // ✅ Get the raw body as a buffer
     const chunks = [];
     for await (const chunk of req) {
         chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
@@ -50,31 +50,15 @@ module.exports = async function handler(req, res) {
         const metadata = session.metadata;
 
         if (!metadata.eventName) {
-            console.log('Skipping - not a ticket purchase');
+            console.log('⏭️ Skipping - not a ticket purchase');
             return res.status(200).json({ received: true, skipped: 'not a ticket' });
         }
 
         try {
-            // Retrieve Stripe fee from balance transaction
-            let stripeFee = null;
-            try {
-                const paymentIntent = await stripe.paymentIntents.retrieve(session.payment_intent, {
-                    expand: ['latest_charge.balance_transaction']
-                });
-                const fee = paymentIntent.latest_charge?.balance_transaction?.fee;
-                if (fee !== undefined) {
-                    stripeFee = fee / 100; // Convert pence to pounds
-                    console.log(`Stripe fee: £${stripeFee}`);
-                }
-            } catch (feeError) {
-                console.error('Warning: Could not retrieve Stripe fee:', feeError.message);
-                // Continue without fee - don't block ticket creation
-            }
-
-            // Create Send Tickets record FIRST (before individual tickets)
+            // ✅ NEW: Create Send Tickets record FIRST (before individual tickets)
             console.log('Creating Send Tickets record...');
             await createSendTicketsRecord(session.id);
-            console.log('Send Tickets record created');
+            console.log('✅ Send Tickets record created');
 
             // Parse the tickets data
             const ticketsArray = JSON.parse(metadata.ticketsData);
@@ -84,16 +68,6 @@ module.exports = async function handler(req, res) {
             // Calculate total tickets for numbering (excluding companion)
             const totalTickets = ticketsArray.reduce((sum, t) => sum + t.quantity, 0);
             
-            // Calculate per-ticket Stripe fee (remainder goes on first ticket)
-            let perTicketFee = null;
-            let firstTicketFee = null;
-            if (stripeFee !== null && totalTickets > 0) {
-                perTicketFee = Math.floor(stripeFee * 100 / totalTickets) / 100; // Round down to nearest penny
-                const remainder = Math.round((stripeFee - perTicketFee * totalTickets) * 100) / 100;
-                firstTicketFee = Math.round((perTicketFee + remainder) * 100) / 100;
-                console.log(`Fee split: first ticket £${firstTicketFee}, remaining tickets £${perTicketFee} each`);
-            }
-
             // Create tickets for each type
             const ticketPromises = [];
             let ticketNumber = 0;
@@ -117,14 +91,13 @@ module.exports = async function handler(req, res) {
                         ticketNumber: ticketNumber,
                         totalTickets: totalTickets,
                         currency: metadata.currency || 'GBP',
-                        mailingListOptIn: metadata.mailingListOptIn === 'true',
-                        stripeFee: ticketNumber === 1 ? firstTicketFee : perTicketFee
+                        mailingListOptIn: metadata.mailingListOptIn === 'true'
                     }));
                 }
             });
 
             await Promise.all(ticketPromises);
-            console.log(`Created ${ticketPromises.length} tickets total`);
+            console.log(`✅ Created ${ticketPromises.length} tickets total`);
 
             // Create companion ticket if requested
             if (metadata.companionTicket === 'true' && metadata.companionTicketData) {
@@ -148,11 +121,10 @@ module.exports = async function handler(req, res) {
                     totalTickets: null,
                     currency: metadata.currency || 'GBP',
                     mailingListOptIn: metadata.mailingListOptIn === 'true',
-                    isCompanion: true,
-                    stripeFee: null
+                    isCompanion: true
                 });
                 
-                console.log('Created companion ticket');
+                console.log('✅ Created companion ticket');
             }
 
         } catch (error) {
@@ -207,11 +179,6 @@ async function createTicketRecord(ticketData) {
 
     if (ticketData.ticketNumber !== null && ticketData.totalTickets !== null) {
         fields['Ticket Number'] = `${ticketData.ticketNumber} of ${ticketData.totalTickets}`;
-    }
-
-    // Add Stripe fee if available
-    if (ticketData.stripeFee !== null && ticketData.stripeFee !== undefined) {
-        fields['Stripe Fees'] = ticketData.stripeFee;
     }
     
     const response = await fetch(url, {
