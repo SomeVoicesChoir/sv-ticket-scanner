@@ -133,7 +133,7 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateFriendly, d
 
     // DATE + TIME FRIENDLY - top right (opposite logo)
     if (dateFriendly) {
-        doc.setFontSize(16);
+        doc.setFontSize(14);
         doc.setTextColor(...darkColor);
         doc.setFont(undefined, 'normal');
         const dateLines = doc.splitTextToSize(dateFriendly, 80);
@@ -141,7 +141,7 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateFriendly, d
     }
 
     // EVENT NAME - slightly lower
-    doc.setFontSize(24);
+    doc.setFontSize(22);
     doc.setFont(undefined, 'bold');
     doc.setTextColor(...darkColor);
     const eventLines = doc.splitTextToSize(event, 180);
@@ -151,7 +151,7 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateFriendly, d
 
     // DOORS + PERFORMANCE TIME - under event name
     if (doorsPerformance) {
-        doc.setFontSize(14);
+        doc.setFontSize(12);
         doc.setFont(undefined, 'normal');
         doc.setTextColor(...darkColor);
         doc.text(doorsPerformance, 15, currentY);
@@ -160,7 +160,7 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateFriendly, d
 
     // TICKET TYPE + PRICE - under doors/performance
     if (ticketTypePrice) {
-        doc.setFontSize(14);
+        doc.setFontSize(12);
         doc.setFont(undefined, 'normal');
         doc.setTextColor(...darkColor);
         doc.text(ticketTypePrice, 15, currentY);
@@ -169,7 +169,7 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateFriendly, d
 
     // BOOKING FEE MESSAGE - under ticket type
     if (bookingFeeMessage) {
-        doc.setFontSize(14);
+        doc.setFontSize(12);
         doc.setFont(undefined, 'normal');
         doc.setTextColor(...darkColor);
         doc.text(bookingFeeMessage, 15, currentY);
@@ -178,16 +178,23 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateFriendly, d
 
     // TOTAL COST - under booking fee
     if (totalCost) {
-        doc.setFontSize(14);
+        doc.setFontSize(12);
         doc.setFont(undefined, 'normal');
         doc.setTextColor(...darkColor);
         doc.text(totalCost, 15, currentY);
         currentY += 7;
     }
 
+    // Separator line between cost details and venue
+    currentY += 3;
+    doc.setDrawColor(200, 200, 200);
+    doc.setLineWidth(0.3);
+    doc.line(15, currentY, 195, currentY);
+    currentY += 5;
+
     // VENUE ADDRESS - after other details, clickable
     if (venueAddress) {
-        doc.setFontSize(14);
+        doc.setFontSize(12);
         doc.setFont(undefined, 'normal');
         doc.setTextColor(...darkColor);
         const addressLines = doc.splitTextToSize(venueAddress, 180);
@@ -201,17 +208,17 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateFriendly, d
 
     // CUSTOMER SECTION
     doc.setTextColor(...darkColor);
-    doc.setFontSize(12);
+    doc.setFontSize(10);
     doc.setFont(undefined, 'normal');
     doc.text('Customer', 15, 108);
-    
-    doc.setFontSize(20);
+
+    doc.setFontSize(18);
     doc.setFont(undefined, 'bold');
     doc.text(name, 15, 118);
-    
+
     // TICKET NUMBER - below customer name
     if (ticketNumber) {
-        doc.setFontSize(12);
+        doc.setFontSize(10);
         doc.setFont(undefined, 'normal');
         doc.setTextColor(...darkColor);
         doc.text(`Ticket ${ticketNumber}`, 15, 126);
@@ -230,7 +237,7 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateFriendly, d
     doc.addImage(`data:image/png;base64,${qrImageBase64}`, 'PNG', qrX + 5, qrY + 5, qrSize - 10, qrSize - 10);
 
     // ✅ TICKET ID - directly below QR code
-    doc.setFontSize(8);
+    doc.setFontSize(6);
     doc.setTextColor(180, 180, 180);
     doc.setFont(undefined, 'normal');
     doc.text(`Ticket ID: ${recordId}`, 105, qrY + qrSize - 5, { align: 'center' });
@@ -244,9 +251,9 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateFriendly, d
         doc.roundedRect(20, 228, 170, boxHeight, 3, 3, 'F');
         
         doc.setTextColor(...darkColor);
-        doc.setFontSize(10);
+        doc.setFontSize(8);
         doc.setFont(undefined, 'normal');
-        
+
         let instructY = 236;
         instructionLines.forEach((line, index) => {
             doc.text(line, 105, instructY + (index * 5), { align: 'center' });
