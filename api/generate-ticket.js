@@ -149,7 +149,22 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateFriendly, d
 
     let currentY = 62 + (eventLines.length * 7) + 5;
 
-    // DOORS + PERFORMANCE TIME - under event name
+    // VENUE ADDRESS - under event name, clickable
+    if (venueAddress) {
+        doc.setFontSize(12);
+        doc.setFont(undefined, 'normal');
+        doc.setTextColor(...darkColor);
+        const addressLines = doc.splitTextToSize(venueAddress, 180);
+        doc.textWithLink(addressLines[0], 15, currentY, {
+            url: `https://maps.google.com/?q=${encodeURIComponent(venueAddress)}`
+        });
+        for (let i = 1; i < addressLines.length; i++) {
+            doc.text(addressLines[i], 15, currentY + (i * 5));
+        }
+        currentY += addressLines.length * 5 + 2;
+    }
+
+    // DOORS + PERFORMANCE TIME - under venue
     if (doorsPerformance) {
         doc.setFontSize(12);
         doc.setFont(undefined, 'normal');
@@ -158,7 +173,13 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateFriendly, d
         currentY += 7;
     }
 
-    // TICKET TYPE + PRICE - under doors/performance
+    // Separator line after doors/performance
+    doc.setDrawColor(200, 200, 200);
+    doc.setLineWidth(0.3);
+    doc.line(15, currentY, 195, currentY);
+    currentY += 5;
+
+    // TICKET TYPE + PRICE
     if (ticketTypePrice) {
         doc.setFontSize(12);
         doc.setFont(undefined, 'normal');
@@ -185,26 +206,11 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateFriendly, d
         currentY += 7;
     }
 
-    // Separator line between cost details and venue
-    currentY += 3;
+    // Separator line after cost details
     doc.setDrawColor(200, 200, 200);
     doc.setLineWidth(0.3);
     doc.line(15, currentY, 195, currentY);
     currentY += 5;
-
-    // VENUE ADDRESS - after other details, clickable
-    if (venueAddress) {
-        doc.setFontSize(12);
-        doc.setFont(undefined, 'normal');
-        doc.setTextColor(...darkColor);
-        const addressLines = doc.splitTextToSize(venueAddress, 180);
-        doc.textWithLink(addressLines[0], 15, currentY, { 
-            url: `https://maps.google.com/?q=${encodeURIComponent(venueAddress)}` 
-        });
-        for (let i = 1; i < addressLines.length; i++) {
-            doc.text(addressLines[i], 15, currentY + (i * 5));
-        }
-    }
 
     // CUSTOMER SECTION
     doc.setTextColor(...darkColor);
