@@ -368,8 +368,8 @@ async function loadEvents() {
         const response = await fetch(API_BASE + '/get-events');
         const data = await response.json();
         eventsData = data.events;
-        // Filter out member-only events so they don't appear on the public ticket page
-        eventsData = eventsData.filter(function(event) { return event.eventType !== 'Member Event'; });
+        // Only show public events on the public ticket page
+        eventsData = eventsData.filter(function(event) { return event.eventType === 'Public Event'; });
         
         // Get unique show names
         const showNames = [...new Set(eventsData.map(function(event) { return event.showName; }))].filter(Boolean);

@@ -368,7 +368,8 @@ async function loadEvents() {
         const response = await fetch(API_BASE + '/get-events');
         const data = await response.json();
         eventsData = data.events;
-        // No event type filter on member page — all events are shown
+        // Only show member events on the member ticket page
+        eventsData = eventsData.filter(function(event) { return event.eventType === 'Member Event'; });
         
         // Get unique show names
         const showNames = [...new Set(eventsData.map(function(event) { return event.showName; }))].filter(Boolean);
