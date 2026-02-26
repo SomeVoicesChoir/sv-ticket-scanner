@@ -94,6 +94,23 @@ module.exports = async function handler(req, res) {
             quantity: ticket.quantity
         }));
 
+        // Add booking fee line items (per ticket, shown separately)
+        for (const ticket of selectedTickets) {
+            if (ticket.bookingFee && ticket.bookingFee > 0) {
+                lineItems.push({
+                    price_data: {
+                        currency: ticket.currency.toLowerCase() || 'gbp',
+                        unit_amount: Math.round(ticket.bookingFee * 100),
+                        product_data: {
+                            name: 'Booking Fee',
+                            description: `Booking fee for ${ticket.eventName}`
+                        }
+                    },
+                    quantity: ticket.quantity
+                });
+            }
+        }
+
         // Add companion ticket if requested
         if (companionTicket && companionTicketDetails) {
             lineItems.push({

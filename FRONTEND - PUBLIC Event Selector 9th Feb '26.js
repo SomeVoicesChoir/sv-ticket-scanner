@@ -804,6 +804,7 @@ document.getElementById('ticket-form').addEventListener('submit', async function
                     ticketType: event.ticketType,
                     ticketTypePrice: event.ticketTypePrice,
                     price: event.price,
+                    bookingFee: event.bookingFee || 0,
                     dateTime: event.dateTime,
                     venueAddress: event.venueAddress,
                     currency: event.currency || 'GBP'
