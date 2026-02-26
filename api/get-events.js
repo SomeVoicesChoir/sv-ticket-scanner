@@ -57,7 +57,10 @@ module.exports = async function handler(req, res) {
             currency: record.fields["Stripe 'default_price_data[currency]'"] || 'GBP',
             allocation: record.fields['Allocation'] || 0,
             maxTickets: record.fields['Max Tickets Per Purchase'] || 6,
-            ticketsRemaining: record.fields['Tickets Remaining'] || 0
+            ticketsRemaining: record.fields['Tickets Remaining'] || 0,
+            bookingFee: record.fields['Booking Fee'] || 0,
+            bookingFeeMessage: record.fields['Booking Fee Message'] || '',
+            totalCost: record.fields['Total Cost'] || 0
         })).filter(event => event.stripePriceId);
 
         return res.status(200).json({ events });

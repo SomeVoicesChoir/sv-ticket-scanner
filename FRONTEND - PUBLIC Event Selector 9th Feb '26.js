@@ -730,7 +730,9 @@ function updateTotalPrice() {
     let totalPrice = 0;
     let totalTickets = 0;
     let currency = 'GBP';
-    
+    let bookingFee = 0;
+    let bookingFeeMessage = '';
+
     for (let eventId in ticketQuantities) {
         const quantity = ticketQuantities[eventId];
         if (quantity > 0) {
@@ -739,24 +741,35 @@ function updateTotalPrice() {
                 totalPrice += quantity * event.price;
                 totalTickets += quantity;
                 currency = event.currency || 'GBP';
+                if (event.bookingFee) {
+                    bookingFee = event.bookingFee;
+                    bookingFeeMessage = event.bookingFeeMessage;
+                }
             }
         }
     }
-    
+
     const totalPriceDiv = document.getElementById('total-price');
     const stickyTotalText = document.getElementById('sticky-total-text');
-    
+
     if (totalTickets > 0) {
         const currencySymbol = getCurrencySymbol(currency);
-        let priceText = 'Total: ' + currencySymbol + totalPrice.toFixed(2) + ' for ' + totalTickets + ' ticket' + (totalTickets > 1 ? 's' : '');
-        
+        let ticketText = currencySymbol + totalPrice.toFixed(2) + ' for ' + totalTickets + ' ticket' + (totalTickets > 1 ? 's' : '');
+
         if (needsCompanionTicket && hasAccessibleTicket) {
-            priceText += ' + 1 free companion ticket';
+            ticketText += ' + 1 free companion ticket';
         }
-        
-        totalPriceDiv.textContent = priceText;
+
+        if (bookingFee && bookingFeeMessage) {
+            let grandTotal = totalPrice + bookingFee;
+            totalPriceDiv.innerHTML = ticketText + '<br><span style="font-size: 0.85em; font-weight: normal;">' + bookingFeeMessage + '</span>' + '<br>Total: ' + currencySymbol + grandTotal.toFixed(2);
+            stickyTotalText.textContent = 'Total: ' + currencySymbol + grandTotal.toFixed(2);
+        } else {
+            totalPriceDiv.innerHTML = 'Total: ' + ticketText;
+            stickyTotalText.textContent = 'Total: ' + ticketText;
+        }
+
         totalPriceDiv.style.display = 'block';
-        stickyTotalText.textContent = priceText;
     } else {
         totalPriceDiv.style.display = 'none';
     }
