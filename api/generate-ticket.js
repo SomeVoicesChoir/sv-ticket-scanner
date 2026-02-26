@@ -140,14 +140,20 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateFriendly, d
         doc.text(dateLines, 195, 20, { align: 'right' });
     }
 
-    // EVENT NAME - slightly lower
+    // Separator line before event name
+    let currentY = 57;
+    doc.setDrawColor(200, 200, 200);
+    doc.setLineWidth(0.3);
+    doc.line(15, currentY, 195, currentY);
+    currentY += 5;
+
+    // EVENT NAME
     doc.setFontSize(22);
     doc.setFont(undefined, 'bold');
     doc.setTextColor(...darkColor);
     const eventLines = doc.splitTextToSize(event, 180);
-    doc.text(eventLines, 15, 62);
-
-    let currentY = 62 + (eventLines.length * 7) + 5;
+    doc.text(eventLines, 15, currentY);
+    currentY += eventLines.length * 7 + 3;
 
     // VENUE ADDRESS - under event name, clickable
     if (venueAddress) {
@@ -216,18 +222,20 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateFriendly, d
     doc.setTextColor(...darkColor);
     doc.setFontSize(10);
     doc.setFont(undefined, 'normal');
-    doc.text('Customer', 15, 108);
+    doc.text('Customer', 15, currentY);
+    currentY += 8;
 
     doc.setFontSize(18);
     doc.setFont(undefined, 'bold');
-    doc.text(name, 15, 118);
+    doc.text(name, 15, currentY);
+    currentY += 8;
 
     // TICKET NUMBER - below customer name
     if (ticketNumber) {
         doc.setFontSize(10);
         doc.setFont(undefined, 'normal');
         doc.setTextColor(...darkColor);
-        doc.text(`Ticket ${ticketNumber}`, 15, 126);
+        doc.text(`Ticket ${ticketNumber}`, 15, currentY);
     }
 
     // QR CODE
