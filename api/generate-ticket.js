@@ -141,7 +141,7 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateFriendly, d
     }
 
     // Separator line before event name
-    let currentY = 57;
+    let currentY = 52;
     doc.setDrawColor(200, 200, 200);
     doc.setLineWidth(0.3);
     doc.line(15, currentY, 195, currentY);
