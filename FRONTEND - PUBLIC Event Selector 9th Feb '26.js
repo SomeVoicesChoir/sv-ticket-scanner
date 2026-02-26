@@ -729,7 +729,7 @@ document.getElementById('companion-ticket-checkbox').addEventListener('change', 
 function updateTotalPrice() {
     let totalPrice = 0;
     let totalTickets = 0;
-    let currency = 'GBP';
+    let currencySymbol = '£';
     let bookingFee = 0;
     let bookingFeeMessage = '';
 
@@ -740,7 +740,7 @@ function updateTotalPrice() {
             if (event) {
                 totalPrice += quantity * event.price;
                 totalTickets += quantity;
-                currency = event.currency || 'GBP';
+                currencySymbol = event.currencySymbol || getCurrencySymbol(event.currency || 'GBP');
                 if (event.bookingFee) {
                     bookingFee += quantity * event.bookingFee;
                     bookingFeeMessage = event.bookingFeeMessage;
@@ -753,7 +753,6 @@ function updateTotalPrice() {
     const stickyTotalText = document.getElementById('sticky-total-text');
 
     if (totalTickets > 0) {
-        const currencySymbol = getCurrencySymbol(currency);
         let ticketText = currencySymbol + totalPrice.toFixed(2) + ' for ' + totalTickets + ' ticket' + (totalTickets > 1 ? 's' : '');
 
         if (needsCompanionTicket && hasAccessibleTicket) {

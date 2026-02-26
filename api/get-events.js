@@ -55,6 +55,7 @@ module.exports = async function handler(req, res) {
             ticketType: record.fields['Ticket Type'] || 'Standard',
             eventType: record.fields['Public or Member Event'] || '',
             currency: record.fields["Stripe 'default_price_data[currency]'"] || 'GBP',
+            currencySymbol: record.fields['Currency Symbol'] || '£',
             allocation: record.fields['Allocation'] || 0,
             maxTickets: record.fields['Max Tickets Per Purchase'] || 6,
             ticketsRemaining: record.fields['Tickets Remaining'] || 0,
