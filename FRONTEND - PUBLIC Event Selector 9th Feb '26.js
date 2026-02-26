@@ -742,7 +742,7 @@ function updateTotalPrice() {
                 totalTickets += quantity;
                 currency = event.currency || 'GBP';
                 if (event.bookingFee) {
-                    bookingFee = event.bookingFee;
+                    bookingFee += quantity * event.bookingFee;
                     bookingFeeMessage = event.bookingFeeMessage;
                 }
             }
