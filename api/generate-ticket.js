@@ -58,6 +58,7 @@ module.exports = async function handler(req, res) {
         const dateFriendly = getFieldValue(fields['Date Friendly']);
         const doorsPerformance = getFieldValue(fields['Doors + Performance Time']);
         const ticketTypePrice = getFieldValue(fields['Ticket Type + Price']);
+        const bookingFeeMessage = getFieldValue(fields['Booking Fee Message']);
         const venueAddress = getFieldValue(fields['Venue Address']);
         const invoiceNumber = getFieldValue(fields['Invoice Number']);
         const ticketNumber = getFieldValue(fields['Ticket Number']);
@@ -77,15 +78,16 @@ module.exports = async function handler(req, res) {
 
         // Generate PDF
         const pdfBase64 = await generatePDF(
-            attendeeName, 
-            eventName, 
-            qrImageBase64, 
-            recordId, 
+            attendeeName,
+            eventName,
+            qrImageBase64,
+            recordId,
             dateFriendly,
             doorsPerformance,
             ticketTypePrice,
-            venueAddress, 
-            invoiceNumber, 
+            bookingFeeMessage,
+            venueAddress,
+            invoiceNumber,
             ticketNumber,
             admissionInstructions
         );
@@ -105,7 +107,7 @@ module.exports = async function handler(req, res) {
     }
 };
 
-async function generatePDF(name, event, qrImageBase64, recordId, dateFriendly, doorsPerformance, ticketTypePrice, venueAddress, invoiceNumber, ticketNumber, admissionInstructions) {
+async function generatePDF(name, event, qrImageBase64, recordId, dateFriendly, doorsPerformance, ticketTypePrice, bookingFeeMessage, venueAddress, invoiceNumber, ticketNumber, admissionInstructions) {
     const doc = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
@@ -159,7 +161,8 @@ async function generatePDF(name, event, qrImageBase64, recordId, dateFriendly, d
         doc.setFontSize(14);
         doc.setFont(undefined, 'normal');
         doc.setTextColor(...darkColor);
-        doc.text(ticketTypePrice, 15, currentY);
+        const ticketLine = bookingFeeMessage ? `${ticketTypePrice} ${bookingFeeMessage}` : ticketTypePrice;
+        doc.text(ticketLine, 15, currentY);
         currentY += 7;
     }
 
