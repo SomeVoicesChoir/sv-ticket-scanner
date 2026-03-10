@@ -1,8 +1,16 @@
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const Airtable = require('airtable');
+const fetch = require('node-fetch');
 
 // Initialize Airtable
 const base = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY }).base(process.env.AIRTABLE_BASE_ID);
+
+const CONFIG = {
+    baseId: process.env.AIRTABLE_BASE_ID,
+    tableId: process.env.AIRTABLE_TABLE_ID,
+    sendTicketsTableId: process.env.AIRTABLE_SEND_TICKETS_TABLE_ID,
+    apiKey: process.env.AIRTABLE_API_KEY
+};
 
 module.exports = async function handler(req, res) {
     // Enable CORS
@@ -24,12 +32,12 @@ module.exports = async function handler(req, res) {
     }
 
     try {
-        const { 
-            selectedTickets, 
-            firstName, 
-            surname, 
-            attendeeEmail, 
-            phone, 
+        const {
+            selectedTickets,
+            firstName,
+            surname,
+            attendeeEmail,
+            phone,
             postcode,
             mailingListOptIn,
             companionTicket,
@@ -49,34 +57,108 @@ module.exports = async function handler(req, res) {
             try {
                 const record = await base('Event').find(ticket.eventId);
                 const ticketsRemaining = record.get('Tickets Remaining');
-                
+
                 if (ticketsRemaining === undefined || ticketsRemaining === null) {
-                    return res.status(400).json({ 
-                        error: `Unable to verify ticket availability for ${ticket.eventName}` 
+                    return res.status(400).json({
+                        error: `Unable to verify ticket availability for ${ticket.eventName}`
                     });
                 }
-                
+
                 if (ticketsRemaining <= 0) {
-                    return res.status(400).json({ 
-                        error: `Sorry, ${ticket.eventName} is sold out.` 
+                    return res.status(400).json({
+                        error: `Sorry, ${ticket.eventName} is sold out.`
                     });
                 }
-                
+
                 if (ticket.quantity > ticketsRemaining) {
-                    return res.status(400).json({ 
-                        error: `Only ${ticketsRemaining} ticket(s) remaining for ${ticket.eventName}. You requested ${ticket.quantity}.` 
+                    return res.status(400).json({
+                        error: `Only ${ticketsRemaining} ticket(s) remaining for ${ticket.eventName}. You requested ${ticket.quantity}.`
                     });
                 }
             } catch (airtableError) {
                 console.error('Airtable validation error:', airtableError);
-                return res.status(400).json({ 
-                    error: 'Unable to verify ticket availability. Please try again.' 
+                return res.status(400).json({
+                    error: 'Unable to verify ticket availability. Please try again.'
                 });
             }
         }
 
-        // Calculate total tickets
+        // Calculate total tickets and total cost (including booking fees)
         const totalQuantity = selectedTickets.reduce((sum, ticket) => sum + ticket.quantity, 0);
+        const totalCost = selectedTickets.reduce((sum, ticket) => {
+            const ticketTotal = ticket.quantity * (ticket.price + (ticket.bookingFee || 0));
+            return sum + ticketTotal;
+        }, 0);
+
+        // FREE TICKET PATH: bypass Stripe entirely when total is £0
+        if (totalCost === 0) {
+            console.log('Free ticket detected — bypassing Stripe');
+
+            const freeSessionId = `free_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
+            const firstTicket = selectedTickets[0];
+
+            // Create Send Tickets record (same as webhook does)
+            await createAirtableRecord(CONFIG.sendTicketsTableId, {
+                'Stripe Session ID': freeSessionId
+            });
+
+            // Create individual ticket records
+            const minimalTicketsData = selectedTickets.map(ticket => ({
+                eventId: ticket.eventId,
+                quantity: ticket.quantity,
+                ticketType: ticket.ticketType
+            }));
+
+            let ticketNumber = 0;
+            const ticketPromises = [];
+
+            for (const ticketType of minimalTicketsData) {
+                for (let i = 0; i < ticketType.quantity; i++) {
+                    ticketNumber++;
+                    ticketPromises.push(createAirtableRecord(CONFIG.tableId, {
+                        'Event Name': [ticketType.eventId],
+                        'First Name': firstName,
+                        'Surname': surname,
+                        'Email': attendeeEmail,
+                        'Mobile Phone Number': phone,
+                        'Post Code': postcode,
+                        'Stripe Session ID': freeSessionId,
+                        'Amount Paid': 0,
+                        'Status': 'Valid',
+                        'Currency': firstTicket.currency || 'GBP',
+                        'Mailing List Opt In': mailingListOptIn || false,
+                        'Ticket Number': `${ticketNumber} of ${totalQuantity}`
+                    }));
+                }
+            }
+
+            // Create companion ticket if requested
+            if (companionTicket && companionTicketDetails) {
+                ticketPromises.push(createAirtableRecord(CONFIG.tableId, {
+                    'Event Name': [companionTicketDetails.eventId],
+                    'First Name': firstName,
+                    'Surname': surname,
+                    'Email': attendeeEmail,
+                    'Mobile Phone Number': phone,
+                    'Post Code': postcode,
+                    'Stripe Session ID': freeSessionId,
+                    'Amount Paid': 0,
+                    'Status': 'Valid',
+                    'Currency': companionTicketDetails.currency || 'GBP',
+                    'Mailing List Opt In': mailingListOptIn || false
+                }));
+            }
+
+            await Promise.all(ticketPromises);
+            console.log(`Created ${ticketPromises.length} free ticket(s) with session ID: ${freeSessionId}`);
+
+            return res.status(200).json({
+                free: true,
+                redirectUrl: 'https://somevoices.co.uk/ticket-success'
+            });
+        }
+
+        // PAID TICKET PATH: create Stripe checkout session
 
         // Build Stripe line items from selected tickets with custom names
         const lineItems = selectedTickets.map(ticket => ({
@@ -191,3 +273,24 @@ module.exports = async function handler(req, res) {
         return res.status(500).json({ error: error.message });
     }
 };
+
+// Helper to create a record in any Airtable table
+async function createAirtableRecord(tableId, fields) {
+    const url = `https://api.airtable.com/v0/${CONFIG.baseId}/${tableId}`;
+
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${CONFIG.apiKey}`,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ fields })
+    });
+
+    if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`Failed to create Airtable record: ${error}`);
+    }
+
+    return await response.json();
+}

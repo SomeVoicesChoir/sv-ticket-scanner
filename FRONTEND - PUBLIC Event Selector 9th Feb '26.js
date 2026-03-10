@@ -873,9 +873,14 @@ document.getElementById('ticket-form').addEventListener('submit', async function
         const data = await response.json();
         
         if (response.ok) {
-            const result = await stripe.redirectToCheckout({ sessionId: data.sessionId });
-            if (result.error) {
-                throw new Error(result.error.message);
+            if (data.free) {
+                // Free ticket — bypass Stripe, go straight to success page
+                window.location.href = data.redirectUrl;
+            } else {
+                const result = await stripe.redirectToCheckout({ sessionId: data.sessionId });
+                if (result.error) {
+                    throw new Error(result.error.message);
+                }
             }
         } else {
             throw new Error(data.error);
