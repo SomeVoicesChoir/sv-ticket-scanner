@@ -877,6 +877,11 @@ document.getElementById('ticket-form').addEventListener('submit', async function
                 // Free ticket — bypass Stripe, go straight to success page
                 window.location.href = data.redirectUrl;
             } else {
+                // Tickets reserved — show confirmation before redirecting to Stripe
+                button.textContent = 'Tickets reserved! Redirecting to payment...';
+                button.style.background = '#28a745';
+                errorDiv.textContent = '';
+
                 const result = await stripe.redirectToCheckout({ sessionId: data.sessionId });
                 if (result.error) {
                     throw new Error(result.error.message);
@@ -890,6 +895,9 @@ document.getElementById('ticket-form').addEventListener('submit', async function
         errorDiv.textContent = error.message;
         button.disabled = false;
         button.textContent = 'Proceed to Payment';
+        button.style.background = '';
+        // Refresh event data to show updated availability
+        loadEvents();
     }
 });
 

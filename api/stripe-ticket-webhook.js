@@ -8,10 +8,14 @@ exports.config = {
     },
 };
 
+const Airtable = require('airtable');
+const base = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY }).base(process.env.AIRTABLE_BASE_ID);
+
 const CONFIG = {
     baseId: process.env.AIRTABLE_BASE_ID,
     tableId: process.env.AIRTABLE_TABLE_ID,
     sendTicketsTableId: process.env.AIRTABLE_SEND_TICKETS_TABLE_ID,
+    eventTableId: process.env.AIRTABLE_EVENT_TABLE_ID,
     apiKey: process.env.AIRTABLE_API_KEY,
     webhookSecret: process.env.STRIPE_TICKET_WEBHOOK_SECRET
 };
@@ -155,9 +159,33 @@ module.exports = async function handler(req, res) {
                 console.log('Created companion ticket');
             }
 
+            // Release reservation — tickets are now real, decrement Reserved count
+            await releaseReservation(metadata);
+            console.log(`Reservation fulfilled for session ${session.id}`);
+
         } catch (error) {
             console.error('Error creating ticket records:', error);
             return res.status(500).json({ error: error.message });
+        }
+    }
+
+    // Handle expired checkout — release reserved tickets back to availability
+    if (event.type === 'checkout.session.expired') {
+        const session = event.data.object;
+        const metadata = session.metadata;
+
+        if (!metadata || !metadata.reservationData) {
+            console.log('Skipping expired session - no reservation data');
+            return res.status(200).json({ received: true });
+        }
+
+        try {
+            await releaseReservation(metadata);
+            console.log(`Reservation released for expired session ${session.id}`);
+        } catch (error) {
+            console.error('CRITICAL: Failed to release reservation for expired session:', error);
+            // Return 500 so Stripe retries the webhook
+            return res.status(500).json({ error: 'Failed to release reservations' });
         }
     }
 
@@ -229,4 +257,40 @@ async function createTicketRecord(ticketData) {
     }
 
     return await response.json();
+}
+
+// Release reserved tickets back to availability
+// Called on both completed (tickets now real) and expired (tickets never purchased)
+async function releaseReservation(metadata) {
+    if (!metadata.reservationData) return;
+
+    const reservations = JSON.parse(metadata.reservationData);
+
+    for (const reservation of reservations) {
+        try {
+            const record = await base('Event').find(reservation.eventId);
+            const currentReserved = record.get('Reserved') || 0;
+            const newReserved = Math.max(0, currentReserved - reservation.quantity);
+
+            const url = `https://api.airtable.com/v0/${CONFIG.baseId}/${CONFIG.eventTableId}/${reservation.eventId}`;
+            const response = await fetch(url, {
+                method: 'PATCH',
+                headers: {
+                    'Authorization': `Bearer ${CONFIG.apiKey}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ fields: { 'Reserved': newReserved } })
+            });
+
+            if (!response.ok) {
+                const error = await response.text();
+                throw new Error(`Failed to update Reserved field: ${error}`);
+            }
+
+            console.log(`Released ${reservation.quantity} reserved ticket(s) for event ${reservation.eventId} (Reserved: ${currentReserved} → ${newReserved})`);
+        } catch (err) {
+            console.error(`CRITICAL: Failed to release reservation for event ${reservation.eventId}:`, err);
+            throw err; // Re-throw so Stripe retries on expiry
+        }
+    }
 }

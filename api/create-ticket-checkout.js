@@ -9,6 +9,7 @@ const CONFIG = {
     baseId: process.env.AIRTABLE_BASE_ID,
     tableId: process.env.AIRTABLE_TABLE_ID,
     sendTicketsTableId: process.env.AIRTABLE_SEND_TICKETS_TABLE_ID,
+    eventTableId: process.env.AIRTABLE_EVENT_TABLE_ID,
     apiKey: process.env.AIRTABLE_API_KEY
 };
 
@@ -31,6 +32,9 @@ module.exports = async function handler(req, res) {
         return res.status(405).json({ error: 'Method not allowed' });
     }
 
+    // Track reservations outside try so catch can rollback on Stripe/unexpected errors
+    const reservations = [];
+
     try {
         const {
             selectedTickets,
@@ -52,33 +56,67 @@ module.exports = async function handler(req, res) {
             return res.status(400).json({ error: 'Missing required fields' });
         }
 
-        // BACKEND VALIDATION: Check ticket availability in Airtable
+        // BACKEND VALIDATION + RESERVATION: Check availability then reserve tickets
+        // Reservations are tracked via the 'Reserved' field on the Event table.
+        // Tickets Remaining formula = Allocation - Tickets Sold - Reserved
+
         for (const ticket of selectedTickets) {
             try {
                 const record = await base('Event').find(ticket.eventId);
                 const ticketsRemaining = record.get('Tickets Remaining');
+                const currentReserved = record.get('Reserved') || 0;
 
                 if (ticketsRemaining === undefined || ticketsRemaining === null) {
+                    await rollbackReservations(reservations);
                     return res.status(400).json({
                         error: `Unable to verify ticket availability for ${ticket.eventName}`
                     });
                 }
 
                 if (ticketsRemaining <= 0) {
+                    await rollbackReservations(reservations);
                     return res.status(400).json({
                         error: `Sorry, ${ticket.eventName} is sold out.`
                     });
                 }
 
                 if (ticket.quantity > ticketsRemaining) {
+                    await rollbackReservations(reservations);
                     return res.status(400).json({
                         error: `Only ${ticketsRemaining} ticket(s) remaining for ${ticket.eventName}. You requested ${ticket.quantity}.`
                     });
                 }
+
+                // RESERVE: increment the Reserved field immediately
+                const newReserved = currentReserved + ticket.quantity;
+                await updateAirtableRecord(CONFIG.eventTableId, ticket.eventId, {
+                    'Reserved': newReserved
+                });
+
+                reservations.push({
+                    eventId: ticket.eventId,
+                    eventName: ticket.eventName,
+                    quantity: ticket.quantity,
+                    previousReserved: currentReserved
+                });
+
+                // VERIFY: re-read to check Tickets Remaining didn't go negative (race condition guard)
+                const verifyRecord = await base('Event').find(ticket.eventId);
+                const verifiedRemaining = verifyRecord.get('Tickets Remaining');
+                if (verifiedRemaining < 0) {
+                    // Another concurrent checkout squeezed in — rollback everything
+                    await rollbackReservations(reservations);
+                    return res.status(400).json({
+                        error: `Sorry, ${ticket.eventName} just sold out. Please try again.`
+                    });
+                }
+
+                console.log(`Reserved ${ticket.quantity} ticket(s) for ${ticket.eventName} (Reserved: ${currentReserved} → ${newReserved})`);
             } catch (airtableError) {
-                console.error('Airtable validation error:', airtableError);
+                console.error('Airtable reservation error:', airtableError);
+                await rollbackReservations(reservations);
                 return res.status(400).json({
-                    error: 'Unable to verify ticket availability. Please try again.'
+                    error: 'Unable to reserve tickets. Please try again.'
                 });
             }
         }
@@ -151,6 +189,9 @@ module.exports = async function handler(req, res) {
 
             await Promise.all(ticketPromises);
             console.log(`Created ${ticketPromises.length} free ticket(s) with session ID: ${freeSessionId}`);
+
+            // Release reservations — tickets are now real (counted in Tickets Sold)
+            await rollbackReservations(reservations);
 
             return res.status(200).json({
                 free: true,
@@ -226,10 +267,14 @@ module.exports = async function handler(req, res) {
         }));
 
         // Create Stripe checkout session with multiple line items
+        // Stripe minimum expires_at is 30 minutes from now
+        const expiresAt = Math.floor(Date.now() / 1000) + 1800; // 30 minutes
+
         const session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
             line_items: lineItems,
             mode: 'payment',
+            expires_at: expiresAt,
             success_url: `https://somevoices.co.uk/ticket-success?session_id={CHECKOUT_SESSION_ID}`,
             cancel_url: 'https://somevoices.co.uk/ticket-incomplete',
             customer_email: attendeeEmail,
@@ -262,17 +307,62 @@ module.exports = async function handler(req, res) {
                 companionTicketData: companionTicket ? JSON.stringify({
                     eventId: companionTicketDetails.eventId,
                     ticketType: companionTicketDetails.ticketType
-                }) : ''
+                }) : '',
+                // Reservation data so webhook can release on expiry
+                reservationData: JSON.stringify(
+                    reservations.map(r => ({ eventId: r.eventId, quantity: r.quantity }))
+                )
             }
         });
 
-        return res.status(200).json({ sessionId: session.id });
+        console.log(`Checkout session ${session.id} created, expires at ${new Date(expiresAt * 1000).toISOString()}`);
+        return res.status(200).json({ sessionId: session.id, expiresAt });
 
     } catch (error) {
         console.error('Error creating checkout session:', error);
+        // Rollback any reservations made before the error
+        if (reservations.length > 0) {
+            console.log(`Rolling back ${reservations.length} reservation(s) due to error`);
+            await rollbackReservations(reservations);
+        }
         return res.status(500).json({ error: error.message });
     }
 };
+
+// Rollback reservations by restoring the Reserved field to its previous value
+async function rollbackReservations(reservations) {
+    for (const r of reservations) {
+        try {
+            await updateAirtableRecord(CONFIG.eventTableId, r.eventId, {
+                'Reserved': r.previousReserved
+            });
+            console.log(`Rolled back reservation for ${r.eventName}: Reserved → ${r.previousReserved}`);
+        } catch (err) {
+            console.error(`CRITICAL: Failed to rollback reservation for ${r.eventName}:`, err);
+        }
+    }
+}
+
+// Helper to update (PATCH) a record in any Airtable table
+async function updateAirtableRecord(tableId, recordId, fields) {
+    const url = `https://api.airtable.com/v0/${CONFIG.baseId}/${tableId}/${recordId}`;
+
+    const response = await fetch(url, {
+        method: 'PATCH',
+        headers: {
+            'Authorization': `Bearer ${CONFIG.apiKey}`,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ fields })
+    });
+
+    if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`Failed to update Airtable record: ${error}`);
+    }
+
+    return await response.json();
+}
 
 // Helper to create a record in any Airtable table
 async function createAirtableRecord(tableId, fields) {

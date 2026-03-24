@@ -19,6 +19,14 @@
     "api/get-events.js": {
       "memory": 1024,
       "maxDuration": 10
+    },
+    "api/create-ticket-checkout.js": {
+      "memory": 1024,
+      "maxDuration": 15
+    },
+    "api/stripe-ticket-webhook.js": {
+      "memory": 1024,
+      "maxDuration": 15
     }
   }
 }
