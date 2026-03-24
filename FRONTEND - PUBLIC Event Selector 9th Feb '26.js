@@ -517,10 +517,10 @@ document.getElementById('event-select').addEventListener('change', function() {
             
             const row = document.createElement('div');
             row.className = 'ticket-type-row';
-            if (event.ticketsRemaining === 0) {
+            if (event.ticketsRemaining <= 0) {
                 row.classList.add('ticket-sold-out');
             }
-            
+
             const infoDiv = document.createElement('div');
             infoDiv.className = 'ticket-type-info';
             
@@ -530,8 +530,8 @@ document.getElementById('event-select').addEventListener('change', function() {
             
             const remainingDiv = document.createElement('div');
             remainingDiv.className = 'ticket-remaining';
-            if (event.ticketsRemaining === 0) {
-                remainingDiv.textContent = 'Sold out';
+            if (event.ticketsRemaining <= 0) {
+                remainingDiv.textContent = 'SOLD OUT';
             } else if (event.ticketsRemaining < 40) {
                 remainingDiv.textContent = 'Last ' + event.ticketsRemaining + ' ticket' + (event.ticketsRemaining > 1 ? 's' : '') + ' remaining';
             }
@@ -563,7 +563,7 @@ document.getElementById('event-select').addEventListener('change', function() {
             plusBtn.dataset.eventId = event.id;
             plusBtn.dataset.action = 'increase';
             plusBtn.onclick = function() { increaseQuantity(event.id); };
-            if (event.ticketsRemaining === 0) {
+            if (event.ticketsRemaining <= 0) {
                 plusBtn.disabled = true;
             }
             
@@ -631,7 +631,7 @@ function increaseQuantity(eventId) {
         return;
     }
     const event = eventsData.find(function(e) { return e.id === eventId; });
-    if (!event || ticketQuantities[eventId] >= event.ticketsRemaining) {
+    if (!event || event.ticketsRemaining <= 0 || ticketQuantities[eventId] >= event.ticketsRemaining) {
         return;
     }
     ticketQuantities[eventId]++;

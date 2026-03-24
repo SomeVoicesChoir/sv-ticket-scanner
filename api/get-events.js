@@ -58,7 +58,7 @@ module.exports = async function handler(req, res) {
             currencySymbol: record.fields['Currency Symbol'] || '£',
             allocation: record.fields['Allocation'] || 0,
             maxTickets: record.fields['Max Tickets Per Purchase'] || 6,
-            ticketsRemaining: record.fields['Tickets Remaining'] || 0,
+            ticketsRemaining: Math.max(0, record.fields['Tickets Remaining'] || 0),
             bookingFee: record.fields['Booking Fee'] || 0,
             bookingFeeMessage: record.fields['Booking Fee Message'] || '',
             totalCost: record.fields['Total Cost'] || 0,
