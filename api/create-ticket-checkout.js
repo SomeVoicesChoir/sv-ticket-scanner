@@ -281,7 +281,7 @@ module.exports = async function handler(req, res) {
             automatic_tax: { enabled: true },
             custom_text: {
                 submit: {
-                    message: `Thank you for purchasing tickets to ${eventNamesList}! Your ticket(s) will be sent to your email address one or two weeks prior to the event date.`
+                    message: `We're holding these tickets for you for 10 minutes. Please complete checkout within that time or your order will expire. Your ticket(s) will be sent to your email address one or two weeks prior to the event date.`
                 }
             },
             payment_intent_data: {
