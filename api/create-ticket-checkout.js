@@ -56,6 +56,12 @@ module.exports = async function handler(req, res) {
             return res.status(400).json({ error: 'Missing required fields' });
         }
 
+        // Validate every ticket has an eventId
+        const invalidTicket = selectedTickets.find(t => !t.eventId);
+        if (invalidTicket) {
+            return res.status(400).json({ error: 'Invalid ticket data. Please refresh the page and try again.' });
+        }
+
         // BACKEND VALIDATION + RESERVATION: Check availability then reserve tickets
         // Reservations are tracked via the 'Reserved' field on the Event table.
         // Tickets Remaining formula = Allocation - Tickets Sold - Reserved
