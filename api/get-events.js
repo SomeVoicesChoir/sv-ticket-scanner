@@ -63,7 +63,8 @@ module.exports = async function handler(req, res) {
             bookingFeeMessage: record.fields['Booking Fee Message'] || '',
             totalCost: record.fields['Total Cost'] || 0,
             freePaid: record.fields['Free / Paid'] || '',
-            dateRaw: record.fields['Date + Time'] || ''
+            dateRaw: record.fields['Date + Time'] || '',
+            scannerPassword: record.fields['Scanner Password'] || ''
         })).filter(event => event.stripePriceId || event.freePaid === 'Free');
 
         return res.status(200).json({ events });
