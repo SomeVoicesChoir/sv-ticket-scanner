@@ -330,10 +330,7 @@
         <!-- Login Screen -->
         <div id="loginScreen" class="login-screen">
             <h2>🔐 Authentication Required</h2>
-            <p>Select your event and enter the password</p>
-            <select id="loginEventSelect" style="width:100%;padding:12px;border:2px solid #ddd;border-radius:8px;font-size:16px;margin-bottom:10px;background:white;">
-                <option value="">Loading events...</option>
-            </select>
+            <p>Enter your name and event password</p>
             <input type="text" id="nameInput" placeholder="Your name" autocomplete="name">
             <input type="password" id="passwordInput" placeholder="Event password" autocomplete="off">
             <button onclick="authenticate()">Unlock Scanner</button>
@@ -444,34 +441,15 @@
         };
 
         // Fetch events and populate the LOGIN screen dropdown (today only)
+        // Fetch events so passwords are available for authentication
         async function loadLoginEvents() {
-            const loginSelect = document.getElementById('loginEventSelect');
             try {
                 const response = await fetch('/api/get-events');
                 if (!response.ok) throw new Error('Failed to load events');
                 const data = await response.json();
                 availableEvents = data.events;
-
-                // Deduplicate by name — only show events with a scanner password set
-                const uniqueMap = new Map();
-                availableEvents.forEach(event => {
-                    if (event.scannerPassword && !uniqueMap.has(event.name)) uniqueMap.set(event.name, event);
-                });
-                const uniqueEvents = Array.from(uniqueMap.values());
-
-                loginSelect.innerHTML = '';
-                if (uniqueEvents.length === 0) {
-                    loginSelect.innerHTML = '<option value="">No events available</option>';
-                    return;
-                }
-                uniqueEvents.forEach(event => {
-                    const option = document.createElement('option');
-                    option.value = event.id;
-                    option.textContent = event.name;
-                    loginSelect.appendChild(option);
-                });
             } catch (error) {
-                loginSelect.innerHTML = '<option value="">Error loading events</option>';
+                console.error('Failed to load events for auth:', error);
             }
         }
         
@@ -538,14 +516,7 @@
         function authenticate() {
             const name = document.getElementById('nameInput').value.trim();
             const password = document.getElementById('passwordInput').value;
-            const loginEventId = document.getElementById('loginEventSelect').value;
             const errorMsg = document.getElementById('errorMessage');
-
-            if (!loginEventId) {
-                errorMsg.textContent = 'No events available today.';
-                errorMsg.style.display = 'block';
-                return;
-            }
 
             if (!name) {
                 errorMsg.textContent = 'Please enter your name.';
@@ -554,31 +525,32 @@
                 return;
             }
 
-            // Find the selected event and check its password
-            const event = availableEvents.find(e => e.id === loginEventId);
-            const eventPassword = event ? event.scannerPassword : '';
-
-            if (!eventPassword) {
-                errorMsg.textContent = 'No password set for this event. Please contact admin.';
+            if (!password) {
+                errorMsg.textContent = 'Please enter the event password.';
                 errorMsg.style.display = 'block';
+                document.getElementById('passwordInput').focus();
                 return;
             }
 
-            if (password === eventPassword) {
-                localStorage.setItem('scanner_authenticated', 'true');
-                localStorage.setItem('scanner_name', name);
-                localStorage.setItem('selected_event_id', loginEventId);
-                localStorage.setItem('selected_event', event.name);
-                scannerName = name;
-                errorMsg.style.display = 'none';
-                showScanner();
-                loadEvents();
-            } else {
+            // Find the event that matches this password
+            const event = availableEvents.find(e => e.scannerPassword && e.scannerPassword === password);
+
+            if (!event) {
                 errorMsg.textContent = 'Incorrect password. Please try again.';
                 errorMsg.style.display = 'block';
                 document.getElementById('passwordInput').value = '';
                 document.getElementById('passwordInput').focus();
+                return;
             }
+
+            localStorage.setItem('scanner_authenticated', 'true');
+            localStorage.setItem('scanner_name', name);
+            localStorage.setItem('selected_event_id', event.id);
+            localStorage.setItem('selected_event', event.name);
+            scannerName = name;
+            errorMsg.style.display = 'none';
+            showScanner();
+            loadEvents();
         }
         
         function changeEvent() {
