@@ -450,9 +450,16 @@
                 const data = await response.json();
                 availableEvents = data.events;
                 
+                // Filter to today's events only
+                const today = new Date().toDateString();
+                const todayEvents = availableEvents.filter(event => {
+                    if (!event.dateRaw) return false;
+                    return new Date(event.dateRaw).toDateString() === today;
+                });
+
                 // ✅ DEDUPLICATE EVENTS BY NAME
                 const uniqueEventsMap = new Map();
-                availableEvents.forEach(event => {
+                todayEvents.forEach(event => {
                     if (!uniqueEventsMap.has(event.name)) {
                         uniqueEventsMap.set(event.name, event);
                     }
@@ -461,6 +468,12 @@
                 
                 // Populate dropdown with unique events only
                 eventSelect.innerHTML = '';
+                if (uniqueEvents.length === 0) {
+                    eventSelect.innerHTML = '<option value="">No events today</option>';
+                    startBtn.disabled = true;
+                    eventSelect.disabled = true;
+                    return;
+                }
                 uniqueEvents.forEach(event => {
                     const option = document.createElement('option');
                     option.value = event.id;
