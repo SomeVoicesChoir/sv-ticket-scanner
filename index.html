@@ -426,7 +426,7 @@
                         return;
                     }
                 }
-                // Saved event no longer valid (different day) — require re-auth
+                // Saved event no longer valid — require re-auth
                 localStorage.removeItem('scanner_authenticated');
             }
 
@@ -452,22 +452,16 @@
                 const data = await response.json();
                 availableEvents = data.events;
 
-                const today = new Date().toDateString();
-                const todayEvents = availableEvents.filter(event => {
-                    if (!event.dateRaw) return false;
-                    return new Date(event.dateRaw).toDateString() === today;
-                });
-
-                // Deduplicate by name
+                // Deduplicate by name — only show events with a scanner password set
                 const uniqueMap = new Map();
-                todayEvents.forEach(event => {
-                    if (!uniqueMap.has(event.name)) uniqueMap.set(event.name, event);
+                availableEvents.forEach(event => {
+                    if (event.scannerPassword && !uniqueMap.has(event.name)) uniqueMap.set(event.name, event);
                 });
                 const uniqueEvents = Array.from(uniqueMap.values());
 
                 loginSelect.innerHTML = '';
                 if (uniqueEvents.length === 0) {
-                    loginSelect.innerHTML = '<option value="">No events today</option>';
+                    loginSelect.innerHTML = '<option value="">No events available</option>';
                     return;
                 }
                 uniqueEvents.forEach(event => {
@@ -499,26 +493,19 @@
                 const data = await response.json();
                 availableEvents = data.events;
                 
-                // Filter to today's events only
-                const today = new Date().toDateString();
-                const todayEvents = availableEvents.filter(event => {
-                    if (!event.dateRaw) return false;
-                    return new Date(event.dateRaw).toDateString() === today;
-                });
-
                 // ✅ DEDUPLICATE EVENTS BY NAME
                 const uniqueEventsMap = new Map();
-                todayEvents.forEach(event => {
+                availableEvents.forEach(event => {
                     if (!uniqueEventsMap.has(event.name)) {
                         uniqueEventsMap.set(event.name, event);
                     }
                 });
                 const uniqueEvents = Array.from(uniqueEventsMap.values());
-                
+
                 // Populate dropdown with unique events only
                 eventSelect.innerHTML = '';
                 if (uniqueEvents.length === 0) {
-                    eventSelect.innerHTML = '<option value="">No events today</option>';
+                    eventSelect.innerHTML = '<option value="">No events available</option>';
                     startBtn.disabled = true;
                     eventSelect.disabled = true;
                     return;
