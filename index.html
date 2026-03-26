@@ -471,40 +471,26 @@
                 const data = await response.json();
                 availableEvents = data.events;
                 
-                // ✅ DEDUPLICATE EVENTS BY NAME
-                const uniqueEventsMap = new Map();
-                availableEvents.forEach(event => {
-                    if (!uniqueEventsMap.has(event.name)) {
-                        uniqueEventsMap.set(event.name, event);
-                    }
-                });
-                const uniqueEvents = Array.from(uniqueEventsMap.values());
+                // Only show the event the user authenticated into
+                const savedEventId = localStorage.getItem('selected_event_id');
+                const authedEvent = availableEvents.find(e => e.id === savedEventId);
 
-                // Populate dropdown with unique events only
                 eventSelect.innerHTML = '';
-                if (uniqueEvents.length === 0) {
-                    eventSelect.innerHTML = '<option value="">No events available</option>';
+                if (!authedEvent) {
+                    eventSelect.innerHTML = '<option value="">No event found</option>';
                     startBtn.disabled = true;
                     eventSelect.disabled = true;
                     return;
                 }
-                uniqueEvents.forEach(event => {
-                    const option = document.createElement('option');
-                    option.value = event.id;
-                    option.textContent = event.name;
-                    eventSelect.appendChild(option);
-                });
-                
-                // Restore previously selected event or select first
-                const savedEventId = localStorage.getItem('selected_event_id');
-                if (savedEventId && uniqueEvents.find(e => e.id === savedEventId)) {
-                    eventSelect.value = savedEventId;
-                } else if (uniqueEvents.length > 0) {
-                    eventSelect.value = uniqueEvents[0].id;
-                }
-                
+
+                const option = document.createElement('option');
+                option.value = authedEvent.id;
+                option.textContent = authedEvent.name;
+                eventSelect.appendChild(option);
+                eventSelect.value = authedEvent.id;
+                eventSelect.disabled = true; // locked to this event
+
                 changeEvent();
-                eventSelect.disabled = false;
                 startBtn.disabled = false;
                 
             } catch (error) {
