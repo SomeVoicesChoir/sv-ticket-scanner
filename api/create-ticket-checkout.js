@@ -45,8 +45,15 @@ module.exports = async function handler(req, res) {
             postcode,
             mailingListOptIn,
             companionTicket,
-            companionTicketDetails
+            companionTicketDetails,
+            source
         } = req.body;
+
+        const CANCEL_URLS = {
+            public: 'https://somevoices.co.uk/ticket-incomplete',
+            member: 'https://somevoices.co.uk/member-ticket-incomplete'
+        };
+        const cancelUrl = CANCEL_URLS[source] || CANCEL_URLS.public;
 
         if (!selectedTickets || selectedTickets.length === 0) {
             return res.status(400).json({ error: 'No tickets selected' });
@@ -283,7 +290,7 @@ module.exports = async function handler(req, res) {
             expires_at: expiresAt,
             allow_promotion_codes: true,
             success_url: `https://somevoices.co.uk/ticket-success?session_id={CHECKOUT_SESSION_ID}`,
-            cancel_url: 'https://somevoices.co.uk/ticket-incomplete',
+            cancel_url: cancelUrl,
             customer_email: attendeeEmail,
             automatic_tax: { enabled: true },
             custom_text: {

@@ -841,7 +841,8 @@ document.getElementById('ticket-form').addEventListener('submit', async function
         phone: phone,
         postcode: postcode,
         mailingListOptIn: document.getElementById('optInCheckbox').checked,
-        companionTicket: needsCompanionTicket && hasAccessibleTicket
+        companionTicket: needsCompanionTicket && hasAccessibleTicket,
+        source: 'member'
     };
     
     if (needsCompanionTicket && hasAccessibleTicket && selectedTickets.length > 0) {
