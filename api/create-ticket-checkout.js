@@ -1,4 +1,4 @@
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const stripe = require('stripe')(process.env.STRIPE_TICKET_SECRET_KEY);
 const Airtable = require('airtable');
 const fetch = require('node-fetch');
 

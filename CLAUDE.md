@@ -49,7 +49,7 @@ AIRTABLE_API_KEY                 # Airtable personal access token
 AIRTABLE_EVENT_TABLE_ID          # Event table ID
 AIRTABLE_TABLE_ID                # Tickets table ID
 AIRTABLE_SEND_TICKETS_TABLE_ID   # Send Tickets automation table ID
-STRIPE_SECRET_KEY                # Stripe secret key
+STRIPE_TICKET_SECRET_KEY         # Stripe secret key (ticketing account — distinct from shared STRIPE_SECRET_KEY)
 STRIPE_TICKET_WEBHOOK_SECRET     # Stripe webhook signing secret
 ```
 
