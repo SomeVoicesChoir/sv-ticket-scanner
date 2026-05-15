@@ -115,7 +115,8 @@ module.exports = async function handler(req, res) {
                     'Quantity': ticket.quantity,
                     'Status': 'Active',
                     'Reservation Token': reservationToken,
-                    'Source': reservationSource
+                    'Source': reservationSource,
+                    'Email': attendeeEmail
                 });
                 reservationRowIds.push(reservationRow.id);
 
