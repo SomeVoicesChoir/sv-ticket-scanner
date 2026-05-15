@@ -20,6 +20,9 @@ const CONFIG = {
     webhookSecret: process.env.STRIPE_TICKET_WEBHOOK_SECRET
 };
 
+// Reservations table — referenced by name (Airtable REST accepts table name or ID)
+const RESERVATIONS_TABLE = 'Reservations';
+
 module.exports = async function handler(req, res) {
     if (req.method !== 'POST') {
         return res.status(405).json({ error: 'Method not allowed' });
@@ -159,7 +162,11 @@ module.exports = async function handler(req, res) {
                 console.log('Created companion ticket');
             }
 
-            // Release reservation — tickets are now real, decrement Reserved count
+            // Mark Reservations rows as Fulfilled (new authoritative store).
+            // Idempotent: status flip is a no-op on retries.
+            await markReservationsByToken(metadata.reservationToken, 'Fulfilled', 'Completed');
+
+            // DUAL-WRITE: decrement the legacy Reserved counter (kept in sync during Phase 2)
             await releaseReservation(metadata);
             console.log(`Reservation fulfilled for session ${session.id}`);
 
@@ -174,13 +181,22 @@ module.exports = async function handler(req, res) {
         const session = event.data.object;
         const metadata = session.metadata;
 
-        if (!metadata || !metadata.reservationData) {
-            console.log('Skipping expired session - no reservation data');
+        if (!metadata || (!metadata.reservationData && !metadata.reservationToken)) {
+            console.log('Skipping expired session - no reservation data or token');
             return res.status(200).json({ received: true });
         }
 
         try {
-            await releaseReservation(metadata);
+            // Mark Reservations rows as Released (new authoritative store).
+            // Idempotent — safe to retry.
+            if (metadata.reservationToken) {
+                await markReservationsByToken(metadata.reservationToken, 'Released', 'Expired');
+            }
+
+            // DUAL-WRITE: decrement the legacy Reserved counter (kept in sync during Phase 2)
+            if (metadata.reservationData) {
+                await releaseReservation(metadata);
+            }
             console.log(`Reservation released for expired session ${session.id}`);
         } catch (error) {
             console.error('CRITICAL: Failed to release reservation for expired session:', error);
@@ -257,6 +273,53 @@ async function createTicketRecord(ticketData) {
     }
 
     return await response.json();
+}
+
+// Mark Reservations-table rows for a given Reservation Token to a terminal status.
+// Looked up by Reservation Token (set by create-ticket-checkout.js when reserving).
+// Idempotent — Stripe webhook retries simply re-PATCH to the same status. No drift.
+async function markReservationsByToken(reservationToken, status, reason) {
+    if (!reservationToken) {
+        console.log('markReservationsByToken: no token in metadata, skipping');
+        return;
+    }
+
+    // Escape single quotes to keep the formula safe (token is a UUID so unlikely but defensive)
+    const safeToken = String(reservationToken).replace(/'/g, "\\'");
+
+    const records = await base(RESERVATIONS_TABLE).select({
+        filterByFormula: `{Reservation Token} = '${safeToken}'`,
+        maxRecords: 100
+    }).all();
+
+    if (records.length === 0) {
+        console.log(`No reservation rows found for token ${reservationToken}`);
+        return;
+    }
+
+    const fields = {
+        'Status': status,
+        'Released At': new Date().toISOString(),
+        'Released Reason': reason
+    };
+
+    await Promise.all(records.map(async (record) => {
+        const url = `https://api.airtable.com/v0/${CONFIG.baseId}/${RESERVATIONS_TABLE}/${record.id}`;
+        const response = await fetch(url, {
+            method: 'PATCH',
+            headers: {
+                'Authorization': `Bearer ${CONFIG.apiKey}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ fields })
+        });
+        if (!response.ok) {
+            const error = await response.text();
+            throw new Error(`Failed to mark reservation row ${record.id}: ${error}`);
+        }
+    }));
+
+    console.log(`Marked ${records.length} reservation row(s) as ${status} (${reason}) for token ${reservationToken}`);
 }
 
 // Release reserved tickets back to availability

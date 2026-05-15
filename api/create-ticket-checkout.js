@@ -1,6 +1,7 @@
 const stripe = require('stripe')(process.env.STRIPE_TICKET_SECRET_KEY);
 const Airtable = require('airtable');
 const fetch = require('node-fetch');
+const crypto = require('crypto');
 
 // Initialize Airtable
 const base = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY }).base(process.env.AIRTABLE_BASE_ID);
@@ -12,6 +13,9 @@ const CONFIG = {
     eventTableId: process.env.AIRTABLE_EVENT_TABLE_ID,
     apiKey: process.env.AIRTABLE_API_KEY
 };
+
+// Reservations table — referenced by name in REST URLs (Airtable accepts both ID and name)
+const RESERVATIONS_TABLE = 'Reservations';
 
 module.exports = async function handler(req, res) {
     // Enable CORS
@@ -33,7 +37,11 @@ module.exports = async function handler(req, res) {
     }
 
     // Track reservations outside try so catch can rollback on Stripe/unexpected errors
-    const reservations = [];
+    const reservations = [];           // Old-Reserved-field bookkeeping (dual-write)
+    const reservationRowIds = [];      // Reservations-table row IDs (new authoritative store)
+
+    // One token per cart, embedded in Stripe metadata so webhook can find all rows
+    const reservationToken = crypto.randomUUID();
 
     try {
         const {
@@ -54,6 +62,7 @@ module.exports = async function handler(req, res) {
             member: 'https://somevoices.co.uk/member-ticket-incomplete'
         };
         const cancelUrl = CANCEL_URLS[source] || CANCEL_URLS.public;
+        const reservationSource = source === 'member' ? 'Member' : 'Public';
 
         if (!selectedTickets || selectedTickets.length === 0) {
             return res.status(400).json({ error: 'No tickets selected' });
@@ -80,27 +89,37 @@ module.exports = async function handler(req, res) {
                 const currentReserved = record.get('Reserved') || 0;
 
                 if (ticketsRemaining === undefined || ticketsRemaining === null) {
-                    await rollbackReservations(reservations);
+                    await releaseAllReservations(reservationRowIds, reservations, 'Rolled back');
                     return res.status(400).json({
                         error: `Unable to verify ticket availability for ${ticket.eventName}`
                     });
                 }
 
                 if (ticketsRemaining <= 0) {
-                    await rollbackReservations(reservations);
+                    await releaseAllReservations(reservationRowIds, reservations, 'Rolled back');
                     return res.status(400).json({
                         error: `Sorry, ${ticket.eventName} is sold out.`
                     });
                 }
 
                 if (ticket.quantity > ticketsRemaining) {
-                    await rollbackReservations(reservations);
+                    await releaseAllReservations(reservationRowIds, reservations, 'Rolled back');
                     return res.status(400).json({
                         error: `Only ${ticketsRemaining} ticket(s) remaining for ${ticket.eventName}. You requested ${ticket.quantity}.`
                     });
                 }
 
-                // RESERVE: increment the Reserved field immediately
+                // NEW: Create Reservations row (Status=Active) — primary tracker going forward
+                const reservationRow = await createAirtableRecord(RESERVATIONS_TABLE, {
+                    'Event': [ticket.eventId],
+                    'Quantity': ticket.quantity,
+                    'Status': 'Active',
+                    'Reservation Token': reservationToken,
+                    'Source': reservationSource
+                });
+                reservationRowIds.push(reservationRow.id);
+
+                // DUAL-WRITE: increment the legacy Reserved counter field as well
                 const newReserved = currentReserved + ticket.quantity;
                 await updateAirtableRecord(CONFIG.eventTableId, ticket.eventId, {
                     'Reserved': newReserved
@@ -118,16 +137,16 @@ module.exports = async function handler(req, res) {
                 const verifiedRemaining = verifyRecord.get('Tickets Remaining');
                 if (verifiedRemaining < 0) {
                     // Another concurrent checkout squeezed in — rollback everything
-                    await rollbackReservations(reservations);
+                    await releaseAllReservations(reservationRowIds, reservations, 'Rolled back');
                     return res.status(400).json({
                         error: `Sorry, ${ticket.eventName} just sold out. Please try again.`
                     });
                 }
 
-                console.log(`Reserved ${ticket.quantity} ticket(s) for ${ticket.eventName} (Reserved: ${currentReserved} → ${newReserved})`);
+                console.log(`Reserved ${ticket.quantity} ticket(s) for ${ticket.eventName} (Reserved: ${currentReserved} → ${newReserved}, row: ${reservationRow.id})`);
             } catch (airtableError) {
                 console.error('Airtable reservation error:', airtableError);
-                await rollbackReservations(reservations);
+                await releaseAllReservations(reservationRowIds, reservations, 'Rolled back');
                 return res.status(400).json({
                     error: 'Unable to reserve tickets. Please try again.'
                 });
@@ -203,8 +222,11 @@ module.exports = async function handler(req, res) {
             await Promise.all(ticketPromises);
             console.log(`Created ${ticketPromises.length} free ticket(s) with session ID: ${freeSessionId}`);
 
-            // Release reservations — tickets are now real (counted in Tickets Sold)
-            await rollbackReservations(reservations);
+            // Mark Reservations rows as Fulfilled (tickets are now real, counted in Tickets Sold)
+            await markReservationRows(reservationRowIds, 'Fulfilled', 'Completed', freeSessionId);
+
+            // DUAL-WRITE: decrement the legacy Reserved counter
+            await decrementOldReserved(reservations);
 
             return res.status(200).json({
                 free: true,
@@ -322,11 +344,18 @@ module.exports = async function handler(req, res) {
                     eventId: companionTicketDetails.eventId,
                     ticketType: companionTicketDetails.ticketType
                 }) : '',
-                // Reservation data so webhook can release on expiry
+                // Reservation data so webhook can release on expiry (legacy path — kept during dual-write)
                 reservationData: JSON.stringify(
                     reservations.map(r => ({ eventId: r.eventId, quantity: r.quantity }))
-                )
+                ),
+                // Reservation token — webhook uses this to find Reservations rows
+                reservationToken: reservationToken
             }
+        });
+
+        // Best-effort: attach the Stripe Session ID to each Reservations row for audit/debug
+        patchSessionIdOntoRows(reservationRowIds, session.id).catch(err => {
+            console.error('Non-fatal: Failed to attach Stripe Session ID to reservation rows:', err);
         });
 
         console.log(`Checkout session ${session.id} created, expires at ${new Date(expiresAt * 1000).toISOString()}`);
@@ -334,27 +363,80 @@ module.exports = async function handler(req, res) {
 
     } catch (error) {
         console.error('Error creating checkout session:', error);
-        // Rollback any reservations made before the error
-        if (reservations.length > 0) {
-            console.log(`Rolling back ${reservations.length} reservation(s) due to error`);
-            await rollbackReservations(reservations);
+        // Mark any created Reservations rows as Failed + decrement legacy counter
+        if (reservationRowIds.length > 0 || reservations.length > 0) {
+            console.log(`Marking ${reservationRowIds.length} reservation row(s) as Failed due to error`);
+            await markReservationRows(reservationRowIds, 'Failed', 'Failed checkout', null).catch(e =>
+                console.error('CRITICAL: Failed to mark reservation rows as Failed:', e)
+            );
+            await decrementOldReserved(reservations).catch(e =>
+                console.error('CRITICAL: Failed to decrement legacy Reserved:', e)
+            );
         }
         return res.status(500).json({ error: error.message });
     }
 };
 
-// Rollback reservations by restoring the Reserved field to its previous value
-async function rollbackReservations(reservations) {
+// Decrement the legacy `Reserved` counter field by the reserved quantity.
+// Replaces the previous buggy rollback that overwrote with a stale snapshot —
+// uses decrement-by-quantity (matching the webhook's releaseReservation) so it
+// can't clobber concurrent decrements happening in parallel.
+async function decrementOldReserved(reservations) {
     for (const r of reservations) {
         try {
+            const record = await base('Event').find(r.eventId);
+            const currentReserved = record.get('Reserved') || 0;
+            const newReserved = Math.max(0, currentReserved - r.quantity);
             await updateAirtableRecord(CONFIG.eventTableId, r.eventId, {
-                'Reserved': r.previousReserved
+                'Reserved': newReserved
             });
-            console.log(`Rolled back reservation for ${r.eventName}: Reserved → ${r.previousReserved}`);
+            console.log(`Decremented legacy Reserved for ${r.eventName} by ${r.quantity} (Reserved: ${currentReserved} → ${newReserved})`);
         } catch (err) {
-            console.error(`CRITICAL: Failed to rollback reservation for ${r.eventName}:`, err);
+            console.error(`CRITICAL: Failed to decrement legacy Reserved for ${r.eventName}:`, err);
         }
     }
+}
+
+// PATCH a set of Reservations rows to a terminal status.
+// Idempotent — webhook retries / concurrent calls can't drift a counter
+// because we're just flipping a per-row enum field.
+async function markReservationRows(rowIds, status, reason, stripeSessionId) {
+    if (!rowIds || rowIds.length === 0) return;
+    const fields = {
+        'Status': status,
+        'Released At': new Date().toISOString(),
+        'Released Reason': reason
+    };
+    if (stripeSessionId) {
+        fields['Stripe Session ID'] = stripeSessionId;
+    }
+    await Promise.all(rowIds.map(rowId =>
+        updateAirtableRecord(RESERVATIONS_TABLE, rowId, fields)
+    ));
+    console.log(`Marked ${rowIds.length} reservation row(s) as ${status} (${reason})`);
+}
+
+// Combined release — used on rollback paths during the checkout endpoint.
+// Marks new Reservations rows as Released AND decrements the legacy counter.
+async function releaseAllReservations(rowIds, reservations, reason) {
+    await markReservationRows(rowIds, 'Released', reason, null).catch(e =>
+        console.error('CRITICAL: Failed to mark reservation rows as Released:', e)
+    );
+    await decrementOldReserved(reservations).catch(e =>
+        console.error('CRITICAL: Failed to decrement legacy Reserved during release:', e)
+    );
+}
+
+// Best-effort attach of the Stripe Session ID to Reservations rows after the
+// Stripe session is created. Useful for audit/debugging; failure is non-fatal
+// because the webhook can still find rows by Reservation Token.
+async function patchSessionIdOntoRows(rowIds, stripeSessionId) {
+    if (!rowIds || rowIds.length === 0) return;
+    await Promise.all(rowIds.map(rowId =>
+        updateAirtableRecord(RESERVATIONS_TABLE, rowId, {
+            'Stripe Session ID': stripeSessionId
+        })
+    ));
 }
 
 // Helper to update (PATCH) a record in any Airtable table
