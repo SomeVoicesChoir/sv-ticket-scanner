@@ -162,12 +162,8 @@ module.exports = async function handler(req, res) {
                 console.log('Created companion ticket');
             }
 
-            // Mark Reservations rows as Fulfilled (new authoritative store).
-            // Idempotent: status flip is a no-op on retries.
+            // Mark Reservations rows as Fulfilled. Idempotent — safe on Stripe retries.
             await markReservationsByToken(metadata.reservationToken, 'Fulfilled', 'Completed');
-
-            // DUAL-WRITE: decrement the legacy Reserved counter (kept in sync during Phase 2)
-            await releaseReservation(metadata);
             console.log(`Reservation fulfilled for session ${session.id}`);
 
         } catch (error) {
@@ -181,22 +177,14 @@ module.exports = async function handler(req, res) {
         const session = event.data.object;
         const metadata = session.metadata;
 
-        if (!metadata || (!metadata.reservationData && !metadata.reservationToken)) {
-            console.log('Skipping expired session - no reservation data or token');
+        if (!metadata || !metadata.reservationToken) {
+            console.log('Skipping expired session - no reservation token');
             return res.status(200).json({ received: true });
         }
 
         try {
-            // Mark Reservations rows as Released (new authoritative store).
-            // Idempotent — safe to retry.
-            if (metadata.reservationToken) {
-                await markReservationsByToken(metadata.reservationToken, 'Released', 'Expired');
-            }
-
-            // DUAL-WRITE: decrement the legacy Reserved counter (kept in sync during Phase 2)
-            if (metadata.reservationData) {
-                await releaseReservation(metadata);
-            }
+            // Mark Reservations rows as Released. Idempotent — safe on Stripe retries.
+            await markReservationsByToken(metadata.reservationToken, 'Released', 'Expired');
             console.log(`Reservation released for expired session ${session.id}`);
         } catch (error) {
             console.error('CRITICAL: Failed to release reservation for expired session:', error);
@@ -322,38 +310,3 @@ async function markReservationsByToken(reservationToken, status, reason) {
     console.log(`Marked ${records.length} reservation row(s) as ${status} (${reason}) for token ${reservationToken}`);
 }
 
-// Release reserved tickets back to availability
-// Called on both completed (tickets now real) and expired (tickets never purchased)
-async function releaseReservation(metadata) {
-    if (!metadata.reservationData) return;
-
-    const reservations = JSON.parse(metadata.reservationData);
-
-    for (const reservation of reservations) {
-        try {
-            const record = await base('Event').find(reservation.eventId);
-            const currentReserved = record.get('Reserved') || 0;
-            const newReserved = Math.max(0, currentReserved - reservation.quantity);
-
-            const url = `https://api.airtable.com/v0/${CONFIG.baseId}/${CONFIG.eventTableId}/${reservation.eventId}`;
-            const response = await fetch(url, {
-                method: 'PATCH',
-                headers: {
-                    'Authorization': `Bearer ${CONFIG.apiKey}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ fields: { 'Reserved': newReserved } })
-            });
-
-            if (!response.ok) {
-                const error = await response.text();
-                throw new Error(`Failed to update Reserved field: ${error}`);
-            }
-
-            console.log(`Released ${reservation.quantity} reserved ticket(s) for event ${reservation.eventId} (Reserved: ${currentReserved} → ${newReserved})`);
-        } catch (err) {
-            console.error(`CRITICAL: Failed to release reservation for event ${reservation.eventId}:`, err);
-            throw err; // Re-throw so Stripe retries on expiry
-        }
-    }
-}
