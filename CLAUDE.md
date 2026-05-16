@@ -198,6 +198,15 @@ The shared `STRIPE_SECRET_KEY` is **unlinked** from the `sv-ticket-scanner` Verc
 - `checkout.session.completed` — Create ticket records, flip Reservations rows to `Fulfilled`
 - `checkout.session.expired` — Flip Reservations rows to `Released` (only)
 
+### Webhook Idempotency
+Both event handlers are safe to retry. Stripe redelivers webhooks for up to 3 days if the endpoint times out or returns 5xx.
+
+**`.completed` handler:** at the top, looks up existing Tickets by `Stripe Session ID`. If any exist, the prior run succeeded — skip all creation (no duplicate tickets, no duplicate email automation) and flip Reservations rows to Fulfilled (idempotent). Also checks Send Tickets table for the partial-failure case where Send Tickets was created but ticket creation crashed mid-Promise.all — on retry, skips Send Tickets re-creation but creates the missing tickets.
+
+**`.expired` handler:** flips Reservations rows to Released via Reservation Token. Status PATCH is a no-op on retry.
+
+**Known edge case:** if `Promise.all` for ticket creation partially succeeds (say 2 of 3) before throwing, the retry will see "tickets exist" and skip — leaving the customer 1 short. Visible in Vercel logs as the original error that triggered the retry. Recover manually in Airtable when it happens. Has not been observed in practice.
+
 ### Webhook Signature Verification
 **CRITICAL:** Uses raw body (not parsed JSON) for `stripe.webhooks.constructEvent()`.
 The `vercel.json` does NOT set `bodyParser: false` — the webhook handler reads the raw body manually.
@@ -394,3 +403,15 @@ Considered and rejected: Vercel-cron reconciliation that recomputes Reserved by 
 - `lib`: none (no shared lib in this repo, all helpers inlined per file)
 
 **Diagnosis tip for future:** If `Reserved (live)` is rising and not coming down, check Vercel logs for the webhook function — `markReservationsByToken` is the only path that releases rows. Filter Reservations by `Status=Active AND Created < now - 35 min` to spot stuck rows directly.
+
+### Webhook idempotency (commit `158e90b`)
+
+Followed up the Reservations migration with a related correctness fix: the `.completed` handler in `api/stripe-ticket-webhook.js` was not idempotent. If Stripe redelivered the event (timeout, transient 5xx, etc.), the handler would create a duplicate Send Tickets row (re-firing the email automation) and a duplicate set of Tickets.
+
+**Fix:** added `fetchRecordsBySessionId(tableId, sessionId)` helper that filters via `{Stripe Session ID} = '<id>'`. At the top of the `.completed` handler:
+- If Tickets exist for this Session ID → skip everything, flip Reservations to Fulfilled, return 200
+- If only Send Tickets exists (partial-failure case) → skip Send Tickets re-creation but proceed with ticket creation
+
+The Reservations side was already idempotent from the prior migration (status flips are no-ops on retry). This commit makes the ticket creation side robust too. Adds two Airtable reads at the top of the handler — cheap compared to the bug it prevents.
+
+**Known limit:** if `Promise.all` for ticket creation partially succeeds before throwing, the retry will see "tickets exist" and skip the missing ones. Visible in logs, recoverable manually. Not yet observed in practice.
