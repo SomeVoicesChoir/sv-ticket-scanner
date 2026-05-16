@@ -62,6 +62,25 @@ module.exports = async function handler(req, res) {
         }
 
         try {
+            // Idempotency guard — if Tickets already exist for this Session ID,
+            // a previous run of this webhook already completed. Skip all creation
+            // (avoids duplicate tickets and duplicate email automation triggers).
+            // Still flip Reservations rows to Fulfilled — that's idempotent.
+            const existingTickets = await fetchRecordsBySessionId(CONFIG.tableId, session.id);
+            if (existingTickets.length > 0) {
+                console.log(`Tickets already exist for session ${session.id} (${existingTickets.length} found) — webhook retry detected, skipping creation`);
+                await markReservationsByToken(metadata.reservationToken, 'Fulfilled', 'Completed');
+                return res.status(200).json({ received: true, skipped: 'tickets already exist' });
+            }
+
+            // Partial-failure guard — Send Tickets may exist from a prior
+            // partial run. Don't re-create it (would fire email automation twice).
+            const existingSendTickets = await fetchRecordsBySessionId(CONFIG.sendTicketsTableId, session.id);
+            const sendTicketsAlreadyExists = existingSendTickets.length > 0;
+            if (sendTicketsAlreadyExists) {
+                console.log(`Send Tickets record exists for session ${session.id} but no tickets — partial failure detected, will skip Send Tickets creation`);
+            }
+
             // Retrieve Stripe fee from balance transaction
             let stripeFee = null;
             try {
@@ -78,10 +97,16 @@ module.exports = async function handler(req, res) {
                 // Continue without fee - don't block ticket creation
             }
 
-            // Create Send Tickets record FIRST (before individual tickets)
-            console.log('Creating Send Tickets record...');
-            await createSendTicketsRecord(session.id);
-            console.log('Send Tickets record created');
+            // Create Send Tickets record FIRST (before individual tickets).
+            // Skipped if a prior partial run already created one — re-creating
+            // would re-trigger the email automation.
+            if (!sendTicketsAlreadyExists) {
+                console.log('Creating Send Tickets record...');
+                await createSendTicketsRecord(session.id);
+                console.log('Send Tickets record created');
+            } else {
+                console.log('Skipping Send Tickets creation — already exists from prior partial run');
+            }
 
             // Parse the tickets data
             const ticketsArray = JSON.parse(metadata.ticketsData);
@@ -195,6 +220,26 @@ module.exports = async function handler(req, res) {
 
     return res.status(200).json({ received: true });
 };
+
+// Look up records in a given Airtable table by Stripe Session ID.
+// Used for idempotency: skip ticket/Send-Tickets creation on webhook retries.
+async function fetchRecordsBySessionId(tableId, stripeSessionId) {
+    const safeId = String(stripeSessionId).replace(/'/g, "\\'");
+    const formula = encodeURIComponent(`{Stripe Session ID} = '${safeId}'`);
+    const url = `https://api.airtable.com/v0/${CONFIG.baseId}/${tableId}?filterByFormula=${formula}&maxRecords=1`;
+
+    const response = await fetch(url, {
+        headers: { 'Authorization': `Bearer ${CONFIG.apiKey}` }
+    });
+
+    if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`Failed to fetch records by Session ID: ${error}`);
+    }
+
+    const data = await response.json();
+    return data.records || [];
+}
 
 async function createSendTicketsRecord(stripeSessionId) {
     const url = `https://api.airtable.com/v0/${CONFIG.baseId}/${CONFIG.sendTicketsTableId}`;
