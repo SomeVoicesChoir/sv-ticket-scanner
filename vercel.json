@@ -31,7 +31,7 @@
     "api/wallet/apple/[ticketId].js": {
       "memory": 1024,
       "maxDuration": 15,
-      "includeFiles": "lib/wallet/apple-template/**"
+      "includeFiles": "lib/wallet/apple-template.pass/**"
     }
   }
 }

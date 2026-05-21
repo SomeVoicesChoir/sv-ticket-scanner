@@ -8,8 +8,9 @@ const CONFIG = {
     apiKey: process.env.AIRTABLE_API_KEY
 };
 
-// Template directory is bundled with the function via vercel.json includeFiles
-const TEMPLATE_DIR = path.join(process.cwd(), 'lib/wallet/apple-template');
+// Template directory is bundled with the function via vercel.json includeFiles.
+// passkit-generator requires the directory to use the .pass suffix (Apple convention).
+const TEMPLATE_DIR = path.join(process.cwd(), 'lib/wallet/apple-template.pass');
 
 // Airtable lookup fields come back as arrays — unwrap to the first value.
 function fv(field, fallback = '') {
