@@ -27,6 +27,11 @@
     "api/stripe-ticket-webhook.js": {
       "memory": 1024,
       "maxDuration": 15
+    },
+    "api/wallet/apple/[ticketId].js": {
+      "memory": 1024,
+      "maxDuration": 15,
+      "includeFiles": "lib/wallet/apple-template/**"
     }
   }
 }
