@@ -36,6 +36,10 @@
     "api/tickets-by-session/[sessionId].js": {
       "memory": 1024,
       "maxDuration": 10
+    },
+    "api/wallet/google/[ticketId].js": {
+      "memory": 1024,
+      "maxDuration": 15
     }
   }
 }
