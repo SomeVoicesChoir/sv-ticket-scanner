@@ -427,6 +427,16 @@
                 localStorage.removeItem('scanner_authenticated');
             }
 
+            // Prefill name from ?scannerName= URL param (passed by the main
+            // Some Voices member app when a ranger taps "Scan Tickets" on
+            // their HOME tab — saves them retyping their name). Only seeds
+            // the input value; the operator can still edit before unlocking.
+            const urlScannerName = new URLSearchParams(window.location.search).get('scannerName');
+            if (urlScannerName) {
+                const nameInput = document.getElementById('nameInput');
+                if (nameInput) nameInput.value = urlScannerName;
+            }
+
             // Allow Enter key to submit
             document.getElementById('passwordInput').addEventListener('keypress', function(e) {
                 if (e.key === 'Enter') {
