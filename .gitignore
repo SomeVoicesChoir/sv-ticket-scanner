@@ -1,2 +1,11 @@
 api/OLD-stripe-ticket-webhook.js
 node_modules
+
+# Never commit credentials or PEM files
+*.p12
+*.pem
+*service-account*.json
+intense-pointer-*.json
+.env
+.env.local
+.DS_Store
