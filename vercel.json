@@ -40,6 +40,15 @@
     "api/wallet/google/[ticketId].js": {
       "memory": 1024,
       "maxDuration": 15
+    },
+    "api/wallet/apple/all-by-session/[sessionId].js": {
+      "memory": 1024,
+      "maxDuration": 30,
+      "includeFiles": "lib/wallet/apple-template.pass/**"
+    },
+    "api/wallet/google/all-by-session/[sessionId].js": {
+      "memory": 1024,
+      "maxDuration": 15
     }
   }
 }
