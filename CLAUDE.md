@@ -224,7 +224,7 @@ Customers can add their tickets to Apple Wallet or Google Wallet directly from t
 **Signing:** `jsonwebtoken` npm package + the service account's `private_key` from `GOOGLE_WALLET_SERVICE_ACCOUNT_JSON`. Signs the JWT inline at request time; no Google API call needed at runtime.
 **Pass Class creation:** `scripts/setup-google-pass-class.js` (one-time, idempotent). Run locally with the service account JSON path. Sample: `node scripts/setup-google-pass-class.js ~/Documents/Vercel/sv-wallet/google-wallet-service-account.json`.
 **Save URL pattern:** `https://pay.google.com/gp/v/save/<signed-JWT>`. The endpoint 302-redirects there.
-**Demo vs Production mode:** new issuers start in demo mode — only Google accounts explicitly added as test users (Wallet Console → Users) can save passes. Anyone else sees "ask your administrator to give you access." Production access is a separate Google review (~1-2 weeks); request via the Wallet Console. Once granted, any Google account can save passes.
+**Production status (as of 2026-05-22):** Issuer is production-approved and the `sv-event-ticket-v1` Pass Class is in `APPROVED` review status. Any Google account can save passes — no whitelist required. (For reference: new issuers start in demo mode where only whitelisted test users can save; production access is a separate Google review of ~1-2 weeks.)
 
 ### Customer experience
 
@@ -403,8 +403,8 @@ Always £0, created as separate ticket record with no ticket number. Only offere
 ### Apple Wallet cert renews yearly
 Apple Pass Type ID certificates expire **1 year after issue**. After expiry, the wallet endpoint will 500 on every request until the cert is renewed. Already-issued passes on customer devices continue working — only newly-generated passes break. Renewal is ~30 min in the Apple Developer portal: create new CSR in Keychain, upload, download .cer, re-export .p12, convert PEM, update `APPLE_PASS_CERT_PEM` / `APPLE_PASS_KEY_PEM` / `APPLE_PASS_KEY_PASSPHRASE` in Vercel. **Set a calendar reminder.**
 
-### Google Wallet production access requires Google review
-New issuers start in demo mode — passes only save for whitelisted Google accounts (Wallet Console → Users → Add test user). To remove the restriction so any Google account can save, request "Publishing access" via the Wallet Console. Google reviews ~1-2 weeks. Until then, public Android customers see "ask your administrator to give you access."
+### Google Wallet — currently production-approved
+The Some Voices issuer (`3388000000023146852`) and the `sv-event-ticket-v1` Pass Class are both in production. Any Google account can save passes today. (If you ever create a new Pass Class or a new issuer, expect demo-mode restrictions until Google reviews and approves — typically ~1-2 weeks.)
 
 ### Wallet URLs aren't authenticated
 The `/api/wallet/{apple|google}/[ticketId]` and `/api/wallet/{apple|google}/all-by-session/[sessionId]` endpoints have no auth — anyone with the URL can generate a pass. Record IDs and Stripe Session IDs are random/unguessable so they're effectively private, but they're not signed. Same security profile as the existing PDF email links. Single-use QR at the door is the real defense.
@@ -523,7 +523,6 @@ Customers can now add their tickets to Apple Wallet or Google Wallet via buttons
 - Per-ticket event details (name, date, doors, venue) on the Pass Object via `textModulesData` — keeps us at one Pass Class for all events
 - Pass Class created via `scripts/setup-google-pass-class.js` (one-time, idempotent)
 - Three env vars: `GOOGLE_WALLET_ISSUER_ID`, `GOOGLE_WALLET_PASS_CLASS_ID`, `GOOGLE_WALLET_SERVICE_ACCOUNT_JSON`
-- Currently in demo mode — production access requested but pending Google review. Whitelisted test accounts work today.
 
 **Bundle endpoints (commit `8469117`):**
 - `/api/wallet/apple/all-by-session/[sessionId]` packs multiple `.pkpass` files into a `.pkpasses` ZIP (or short-circuits to a single pkpass if only one ticket)
@@ -545,5 +544,4 @@ Customers can now add their tickets to Apple Wallet or Google Wallet via buttons
 
 **Known follow-ups:**
 - Apple cert renewal in ~1 year — set calendar reminder
-- Google production-access approval — pending Google review (expected 1-2 weeks from 2026-05-22)
-- Once production access lands, all Android customers (not just whitelisted test users) can save passes
+- Google production access **approved on 2026-05-22** — Pass Class status is `APPROVED`, any Android customer can save passes immediately
