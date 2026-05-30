@@ -406,25 +406,65 @@
             successCount: 0,
             duplicateCount: 0
         };
-        
+
+        // Auto-logout after 24 hours since login
+        const SESSION_TIMEOUT_MS = 24 * 60 * 60 * 1000;
+
+        function isSessionExpired() {
+            const loginTime = parseInt(localStorage.getItem('scanner_login_time'), 10);
+            if (!loginTime) return true; // No timestamp → treat as expired (force re-login)
+            return (Date.now() - loginTime) > SESSION_TIMEOUT_MS;
+        }
+
+        function clearAuthState() {
+            localStorage.removeItem('scanner_authenticated');
+            localStorage.removeItem('scanner_name');
+            localStorage.removeItem('selected_event');
+            localStorage.removeItem('selected_event_id');
+            localStorage.removeItem('scanner_login_time');
+        }
+
         // Check if already authenticated
         window.onload = async function() {
             // Always fetch events first (needed for login screen dropdown)
             await loadLoginEvents();
 
             if (localStorage.getItem('scanner_authenticated') === 'true') {
-                const savedEventId = localStorage.getItem('selected_event_id');
-                const savedEvent = availableEvents.find(e => e.id === savedEventId);
-                if (savedEvent) {
-                    scannerName = localStorage.getItem('scanner_name') || '';
-                    if (scannerName) {
-                        showScanner();
-                        loadEvents();
-                        return;
+                // 24h auto-logout — if the saved login is stale, clear state and
+                // require re-auth before honouring the saved session.
+                if (isSessionExpired()) {
+                    clearAuthState();
+                    const errorMsg = document.getElementById('errorMessage');
+                    if (errorMsg) {
+                        errorMsg.textContent = 'Your session has expired. Please log in again.';
+                        errorMsg.style.display = 'block';
                     }
+                } else {
+                    const savedEventId = localStorage.getItem('selected_event_id');
+                    const savedEvent = availableEvents.find(e => e.id === savedEventId);
+                    if (savedEvent) {
+                        scannerName = localStorage.getItem('scanner_name') || '';
+                        if (scannerName) {
+                            showScanner();
+                            loadEvents();
+                            // Defence-in-depth: if the device stays open across
+                            // the 24h boundary, periodic check forces a logout.
+                            setInterval(function() {
+                                if (isSessionExpired()) {
+                                    logout();
+                                    const e = document.getElementById('errorMessage');
+                                    if (e) {
+                                        e.textContent = 'Your session has expired. Please log in again.';
+                                        e.style.display = 'block';
+                                    }
+                                }
+                            }, 5 * 60 * 1000); // every 5 minutes
+                            return;
+                        }
+                    }
+                    // Saved event no longer valid — require re-auth
+                    clearAuthState();
                 }
-                // Saved event no longer valid — require re-auth
-                localStorage.removeItem('scanner_authenticated');
             }
 
             // Prefill name from ?scannerName= URL param (passed by the main
@@ -543,6 +583,7 @@
             localStorage.setItem('scanner_name', name);
             localStorage.setItem('selected_event_id', event.id);
             localStorage.setItem('selected_event', event.name);
+            localStorage.setItem('scanner_login_time', Date.now().toString());
             scannerName = name;
             errorMsg.style.display = 'none';
             showScanner();
@@ -565,10 +606,7 @@
         }
         
         function logout() {
-            localStorage.removeItem('scanner_authenticated');
-            localStorage.removeItem('scanner_name');
-            localStorage.removeItem('selected_event');
-            localStorage.removeItem('selected_event_id');
+            clearAuthState();
             scannerName = '';
             selectedEvent = '';
             selectedEventId = '';
