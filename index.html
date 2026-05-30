@@ -407,8 +407,8 @@
             duplicateCount: 0
         };
 
-        // Auto-logout after 24 hours since login
-        const SESSION_TIMEOUT_MS = 24 * 60 * 60 * 1000;
+        // Auto-logout after 48 hours since login
+        const SESSION_TIMEOUT_MS = 48 * 60 * 60 * 1000;
 
         function isSessionExpired() {
             const loginTime = parseInt(localStorage.getItem('scanner_login_time'), 10);
