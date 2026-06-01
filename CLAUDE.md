@@ -153,13 +153,23 @@ GOOGLE_WALLET_SERVICE_ACCOUNT_JSON     # Full contents of service-account.json (
 - Airtable automation triggers on record creation to send ticket emails
 
 ### Attendance Table
-**Purpose:** Archive event data before deleting ticket records
-- `*Events` — Linked record to Event table
-- `Event Name Rollup` — Rollup of linked event names
+**Purpose:** Live aggregate view of event data. Rollups read straight from linked Event records (and through them, from linked Tickets) — values refresh whenever underlying data changes.
+- `*Events` — Linked record(s) to Event table. For multi-date runs (e.g. a 3-night concert with one Event row per date) all dates link to a single Attendance row.
+- `Event Name Rollup` — Rollup of linked event names; used by the automation script to detect existing Attendance rows
 - `Date + Time` — Rollup of event dates (ARRAYUNIQUE aggregation)
-- Dynamic rollup fields: `Allocation`, `Tickets Sold`, `Sold %age`, `Gross Income`, `Net Income`, `Checked In`, `Attended %age`
-- Static final fields: `Allocation (final)`, `Tickets Sold (final)`, `Sold %age (final)`, `Gross Income (final)`, `Net Income (final)`, `Checked In (final)`, `Attendance %age (final)`
-- Airtable automation copies dynamic → static when all event dates have passed
+- Live rollup fields: `Allocation`, `Tickets Sold`, `Sold %age`, `Gross Income`, `Net Income`, `Checked In`, `Attendance %age`
+
+**Automation:** when the last Event record matching a given name reaches its date, an Airtable Scripting Extension automation runs that:
+1. Finds ALL Event records with the same `Event Name`
+2. Confirms every one of their `Date + Time` values is in the past (aborts if any are still future)
+3. Creates a new Attendance row OR updates the existing one matched by `Event Name Rollup` — linking all the matching Event records via `*Events`
+
+So a 3-night run produces one Attendance row, not three, and the rollups sum across all dates' Tickets automatically. Matching is by exact string equality on `Event Name` — names must be consistent across records (trailing spaces, suffixes etc. will treat records as different events).
+
+### Attendance & Revenue Totals Table
+**Purpose:** Frozen historical snapshot of event finances. Once an event has fully completed, a separate Airtable automation copies the live `Attendance` rollup values into this table, where they persist regardless of any future changes to (or deletion of) the underlying Tickets records.
+
+This is the table to reference for historical reporting — never the `Attendance` rollups (which would zero out if Tickets are ever cleaned up).
 
 ---
 
