@@ -155,21 +155,44 @@ GOOGLE_WALLET_SERVICE_ACCOUNT_JSON     # Full contents of service-account.json (
 ### Attendance Table
 **Purpose:** Live aggregate view of event data. Rollups read straight from linked Event records (and through them, from linked Tickets) — values refresh whenever underlying data changes.
 - `*Events` — Linked record(s) to Event table. For multi-date runs (e.g. a 3-night concert with one Event row per date) all dates link to a single Attendance row.
-- `Event Name Rollup` — Rollup of linked event names; used by the automation script to detect existing Attendance rows
+- `Event Name Rollup` — Rollup of linked event names; used by the Step 1 automation to detect existing Attendance rows
 - `Date + Time` — Rollup of event dates (ARRAYUNIQUE aggregation)
-- Live rollup fields: `Allocation`, `Tickets Sold`, `Sold %age`, `Gross Income`, `Net Income`, `Checked In`, `Attendance %age`
-
-**Automation:** when the last Event record matching a given name reaches its date, an Airtable Scripting Extension automation runs that:
-1. Finds ALL Event records with the same `Event Name`
-2. Confirms every one of their `Date + Time` values is in the past (aborts if any are still future)
-3. Creates a new Attendance row OR updates the existing one matched by `Event Name Rollup` — linking all the matching Event records via `*Events`
-
-So a 3-night run produces one Attendance row, not three, and the rollups sum across all dates' Tickets automatically. Matching is by exact string equality on `Event Name` — names must be consistent across records (trailing spaces, suffixes etc. will treat records as different events).
+- Live rollup fields: `Allocation`, `Tickets Sold`, `Sold %age`, `Gross Income`, `Stripe Fees`, `Net Income`, `Checked In`, `Attendance %age`, `Washout`
+- `On / Off Sale` — Single select; flipped to `"Event Complete"` after the event has fully ended (triggers the Step 2 snapshot automation)
 
 ### Attendance & Revenue Totals Table
-**Purpose:** Frozen historical snapshot of event finances. Once an event has fully completed, a separate Airtable automation copies the live `Attendance` rollup values into this table, where they persist regardless of any future changes to (or deletion of) the underlying Tickets records.
+**Purpose:** Frozen historical snapshot. Each row is one event's final numbers, captured at the moment the Attendance row's `On / Off Sale` flips to `"Event Complete"`. Values are stored as plain text / number fields (not rollups) so they survive any future cleanup of Tickets or Events.
 
-This is the table to reference for historical reporting — never the `Attendance` rollups (which would zero out if Tickets are ever cleaned up).
+**Fields** (all populated by the Step 2 script):
+- `Name` (text, primary) — copied from Attendance `Name`; used as the upsert key so re-runs update the same row rather than duplicating
+- `Date + Time` (text) — pre-formatted UK-locale string like `2/6/2026 7:30pm` (the script's `formatDateTime` helper)
+- `Location`, `Show`, `Term` (text)
+- `Allocation`, `Tickets Sold`, `Sold %age`, `Gross Income`, `Stripe Fees`, `Net Income`, `Checked In`, `Attendance %age`, `Washout` (number — frozen)
+
+**Always read historical totals from this table, never from `Attendance`** — the Attendance rollups would zero out if old Tickets are ever deleted.
+
+### Two-step Airtable automation chain
+
+Both scripts live in `~/Documents/Vercel/airtable-scripts/` (version-controlled outside the sv-ticket-scanner repo since they run inside Airtable, not Vercel):
+
+**Step 1 — `ticketing-attendance-and-revenue-step1-data-capture.js`**
+Trigger: Event record reaches its `Date + Time` (or a scheduled check).
+What it does:
+1. Finds ALL Event records sharing the same `Event Name`
+2. Aborts if any of those still have a future `Date + Time` (the whole multi-night run must be complete)
+3. Creates a new Attendance row OR updates the existing one matched by `Event Name Rollup`, linking all matching Events via `*Events`
+
+So a 3-night run produces one Attendance row whose rollups sum across all three dates. Matching is exact string equality on `Event Name` — names must be consistent (trailing spaces, suffixes etc. create new rows).
+
+**Step 2 — `ticketing-attendance-and-revenue-step2-totals.js`**
+Trigger: Attendance record where `{On / Off Sale} = "Event Complete"`.
+What it does:
+1. Reads the Attendance row by ID
+2. Coerces each field to its target type (numbers via `coerceNumber`, dates via `formatDateTime`, everything else as text)
+3. Finds an existing Attendance & Revenue Totals row by `Name`, or creates one
+4. PATCHes the snapshot fields one at a time (so a single failing field doesn't lose the others, and the failing field name shows up in the logs)
+
+Re-runnable: subsequent fires update the same Totals row rather than duplicating.
 
 ---
 
