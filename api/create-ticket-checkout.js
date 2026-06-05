@@ -79,8 +79,8 @@ module.exports = async function handler(req, res) {
 
         // BACKEND VALIDATION + RESERVATION: check availability, then create a row in
         // the Reservations table per cart line. Status=Active rows are summed by the
-        // Reserved (live) rollup on the Event table; Tickets Remaining = Allocation -
-        // Tickets Sold - Reserved (live). Status flips on completion/expiry/rollback
+        // Reserved rollup on the Event table; Tickets Remaining = Allocation -
+        // Tickets Sold - Reserved. Status flips on completion/expiry/rollback
         // are idempotent — no shared counter to race on.
 
         for (const ticket of selectedTickets) {
@@ -109,7 +109,7 @@ module.exports = async function handler(req, res) {
                     });
                 }
 
-                // Create Reservations row (Status=Active) — Reserved (live) rollup picks this up
+                // Create Reservations row (Status=Active) — Reserved rollup picks this up
                 const reservationRow = await createAirtableRecord(RESERVATIONS_TABLE, {
                     'Event': [ticket.eventId],
                     'Quantity': ticket.quantity,
@@ -121,7 +121,7 @@ module.exports = async function handler(req, res) {
                 reservationRowIds.push(reservationRow.id);
 
                 // VERIFY: re-read to check Tickets Remaining didn't go negative (race guard).
-                // Tickets Remaining now uses the Reserved (live) rollup which reflects this new row.
+                // Tickets Remaining now uses the Reserved rollup which reflects this new row.
                 const verifyRecord = await base('Event').find(ticket.eventId);
                 const verifiedRemaining = verifyRecord.get('Tickets Remaining');
                 if (verifiedRemaining < 0) {

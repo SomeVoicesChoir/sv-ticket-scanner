@@ -86,9 +86,8 @@ GOOGLE_WALLET_SERVICE_ACCOUNT_JSON     # Full contents of service-account.json (
 - `Stripe Price ID` — Stripe product price ID
 - `Allocation` — Total tickets available
 - `Tickets Sold` — Count of completed purchases
-- `Reserved (live)` — **Rollup:** SUM of `Quantity` from linked `Reservations` records where `Status = 'Active'`. Drives `Tickets Remaining`.
-- `Reserved` — **Legacy integer field, no longer written.** Will be deleted after Phase 5 cleanup completes.
-- `Tickets Remaining` — **Formula:** `Allocation - {Tickets Sold} - {Reserved (live)}`
+- `Reserved` — **Rollup:** SUM of `Quantity` from linked `Reservations` records where `Status = 'Active'`. Drives `Tickets Remaining`. (Originally created as `Reserved (live)` during the Reservations migration; renamed after the legacy integer field was deleted.)
+- `Tickets Remaining` — **Formula:** `Allocation - {Tickets Sold} - Reserved`
 - `Reservations` — Reverse-linked to Reservations table
 - `Resv: Started` / `Resv: Completed` / `Resv: Abandoned` / `Resv: Failed` — Rollups (`COUNTA(values)`) filtered by Reservation Status. Used for funnel analytics.
 - `Abandon Rate` — Formula: `IF({Resv: Started} = 0, BLANK(), {Resv: Abandoned} / {Resv: Started})`. Sortable column for spotting events with checkout friction.
@@ -125,7 +124,7 @@ GOOGLE_WALLET_SERVICE_ACCOUNT_JSON     # Full contents of service-account.json (
 - `Google Wallet Button HTML` — Same shape but linking to `/api/wallet/google/{RECORD_ID}`
 
 ### Reservations Table
-**Purpose:** One row per cart-line per checkout. Tracks in-flight tickets via the `Status` field. `Reserved (live)` rollup on the Event table sums Quantity from rows where Status='Active'.
+**Purpose:** One row per cart-line per checkout. Tracks in-flight tickets via the `Status` field. The `Reserved` rollup on the Event table sums Quantity from rows where Status='Active'.
 
 **Fields:**
 - `Reservation ID` — Autonumber (primary)
@@ -203,7 +202,7 @@ Concurrent checkouts could both read "5 remaining" and sell 10 tickets total. Pr
 
 ### Solution: Reservations table + idempotent status flips
 
-Each in-flight checkout creates one row per cart line in the `Reservations` table (Status=Active). The Event table's `Reserved (live)` rollup sums those Active rows' Quantity. Webhooks flip Status to terminal states by Reservation Token — no shared counter to race on.
+Each in-flight checkout creates one row per cart line in the `Reservations` table (Status=Active). The Event table's `Reserved` rollup sums those Active rows' Quantity. Webhooks flip Status to terminal states by Reservation Token — no shared counter to race on.
 
 **Checkout creation** (`api/create-ticket-checkout.js`):
 1. Read `Tickets Remaining` — reject if insufficient
@@ -331,7 +330,7 @@ Frontend → POST /api/create-ticket-checkout
   ├─ Validate fields
   ├─ Generate reservationToken (UUIDv4)
   ├─ Per cart line: create Reservations row (Status=Active, token, email, source)
-  ├─ Re-read Tickets Remaining (race guard via Reserved (live) rollup)
+  ├─ Re-read Tickets Remaining (race guard via Reserved rollup)
   ├─ Create Stripe checkout session (token in metadata)
   ├─ Best-effort PATCH Stripe Session ID onto rows (audit)
   └─ Return sessionId
@@ -415,7 +414,7 @@ The two `FRONTEND - *.js` files are **standalone HTML/JS** that get copy-pasted 
 ## Important Gotchas
 
 ### Reservations rows can get stuck Active
-If a webhook fails to fire (Stripe outage, Vercel timeout, signature secret mismatch), the corresponding Reservations row stays `Status=Active` and inflates `Reserved (live)` permanently. Stripe retries webhooks for up to 3 days, so most stuck rows self-heal. For ones that don't:
+If a webhook fails to fire (Stripe outage, Vercel timeout, signature secret mismatch), the corresponding Reservations row stays `Status=Active` and inflates `Reserved` permanently. Stripe retries webhooks for up to 3 days, so most stuck rows self-heal. For ones that don't:
 
 Filter the Reservations table by `Status = 'Active' AND Created < now - 35 minutes`. Should always be empty. If anything appears, flip Status to `Released` and Released Reason to `Manual cleanup` by hand. Takes seconds at this volume.
 
@@ -453,7 +452,7 @@ The `/api/wallet/{apple|google}/[ticketId]` and `/api/wallet/{apple|google}/all-
 
 ## Never Do This
 - Remove raw body handling from webhook — Stripe signature verification will break
-- Add a second writer that mutates `Reserved (live)` directly — it's a rollup, not a counter; the only valid way to change it is to add/edit/delete Reservations rows
+- Add a second writer that mutates `Reserved` directly — it's a rollup, not a counter; the only valid way to change it is to add/edit/delete Reservations rows
 - Replace status flips with row deletion on the webhook — flips are idempotent (Stripe retries safe), deletes aren't (a retry would error on missing rows)
 - Use `=== 0` for sold out checks — use `<= 0` (reservations can cause negative remaining)
 - Forget to update Squarespace embeds after frontend JS changes
@@ -521,7 +520,7 @@ Considered and rejected: Vercel-cron reconciliation that recomputes Reserved by 
 - `api/stripe-ticket-webhook.js` — added `markReservationsByToken`; removed `releaseReservation`
 - `lib`: none (no shared lib in this repo, all helpers inlined per file)
 
-**Diagnosis tip for future:** If `Reserved (live)` is rising and not coming down, check Vercel logs for the webhook function — `markReservationsByToken` is the only path that releases rows. Filter Reservations by `Status=Active AND Created < now - 35 min` to spot stuck rows directly.
+**Diagnosis tip for future:** If `Reserved` is rising and not coming down, check Vercel logs for the webhook function — `markReservationsByToken` is the only path that releases rows. Filter Reservations by `Status=Active AND Created < now - 35 min` to spot stuck rows directly.
 
 ### Webhook idempotency (commit `158e90b`)
 
@@ -534,6 +533,24 @@ Followed up the Reservations migration with a related correctness fix: the `.com
 The Reservations side was already idempotent from the prior migration (status flips are no-ops on retry). This commit makes the ticket creation side robust too. Adds two Airtable reads at the top of the handler — cheap compared to the bug it prevents.
 
 **Known limit:** if `Promise.all` for ticket creation partially succeeds before throwing, the retry will see "tickets exist" and skip the missing ones. Visible in logs, recoverable manually. Not yet observed in practice.
+
+---
+
+## Session Log: June 3, 2026
+
+### Reservations migration — Phase 5 cleanup complete
+
+Three weeks of clean operation after Phase 4 (single-write deploy on May 16) and no anomalies observed, so the final cleanup landed:
+
+- Legacy `Reserved` integer field on Event table **deleted** in Airtable
+- `Reserved (live)` rollup **renamed** to `Reserved`
+- `Tickets Remaining` formula auto-updated to `Allocation - {Tickets Sold} - Reserved` (Airtable tracks fields by ID, so the rename propagated automatically)
+- All current-state mentions of `Reserved (live)` in CLAUDE.md and `api/create-ticket-checkout.js` comments updated to `Reserved`
+- Session-log narrative entries from May 15–16 deliberately left referring to `Reserved (live)` — that's accurate history of what the field was called during the migration
+
+No code or behaviour changed — the rollup that drives `Tickets Remaining` is the same field, just now under its final name. Nothing to test in production.
+
+The Reservations migration arc that started May 14 (planning), went through dual-write May 15–16, formula switch + single-write May 16, and bedded in for three weeks before this final cleanup, is now fully closed.
 
 ---
 
