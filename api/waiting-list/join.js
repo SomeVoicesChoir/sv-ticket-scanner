@@ -55,18 +55,25 @@ module.exports = async function handler(req, res) {
         const eventName = eventRecord.fields['Event Name'] || 'this event';
 
         // ── Prevent duplicate waiting list entries for the same email + event ──
-        // Light belt-and-braces check — Airtable schema doesn't enforce uniqueness.
+        // ARRAYJOIN on a linked-record field returns the primary field text of the
+        // linked records (event names), NOT their record IDs — so we can't filter
+        // by event ID in the formula. Instead: filter by email + status server-side,
+        // then check the linked event in code.
         const safeEmail = String(email).toLowerCase().replace(/'/g, "\\'");
         const dupFormula = encodeURIComponent(
-            `AND(LOWER({Email}) = '${safeEmail}', FIND('${eventId}', ARRAYJOIN({Event})), {Status} = 'Waiting')`
+            `AND(LOWER({Email}) = '${safeEmail}', {Status} = 'Waiting')`
         );
-        const dupUrl = `https://api.airtable.com/v0/${CONFIG.baseId}/${encodeURIComponent(WAITING_LIST_TABLE)}?filterByFormula=${dupFormula}&maxRecords=1`;
+        const dupUrl = `https://api.airtable.com/v0/${CONFIG.baseId}/${encodeURIComponent(WAITING_LIST_TABLE)}?filterByFormula=${dupFormula}`;
         const dupResp = await fetch(dupUrl, {
             headers: { 'Authorization': `Bearer ${CONFIG.apiKey}` }
         });
         if (dupResp.ok) {
             const dupData = await dupResp.json();
-            if ((dupData.records || []).length > 0) {
+            const hasDuplicate = (dupData.records || []).some(r => {
+                const linkedEvents = r.fields['Event'] || [];
+                return Array.isArray(linkedEvents) && linkedEvents.includes(eventId);
+            });
+            if (hasDuplicate) {
                 return res.status(409).json({
                     error: `You're already on the waiting list for ${eventName}. We'll email you if a seat becomes available.`
                 });
