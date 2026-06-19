@@ -53,6 +53,10 @@
     "api/waiting-list/join.js": {
       "memory": 1024,
       "maxDuration": 10
+    },
+    "api/waiting-list/lookup/[token].js": {
+      "memory": 1024,
+      "maxDuration": 10
     }
   }
 }
