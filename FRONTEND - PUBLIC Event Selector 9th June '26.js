@@ -201,11 +201,20 @@
 }
 .ticket-sold-out {
     pointer-events: none;
+    /* Stack vertically when sold out: ticket info on top, waitlist button centered below */
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
 }
 /* Dim just the info side — leaves the controlDiv (waitlist button) at full
    opacity. Inline pointer-events:auto on the button re-enables clicks. */
 .ticket-sold-out .ticket-type-info {
     opacity: 0.5;
+    text-align: center;
+    flex: none;
+}
+.ticket-sold-out .quantity-controls {
+    justify-content: center;
 }
 .ticket-sold-out .ticket-type-name::after {
     content: " - SOLD OUT";
@@ -362,13 +371,13 @@
     background: #f4dbc0;
     color: #000;
     border: none;
-    padding: 8px 14px;
-    font-size: 13px;
+    padding: 12px 22px;
+    font-size: 15px;
     font-weight: bold;
-    border-radius: 4px;
+    border-radius: 6px;
     cursor: pointer;
     text-transform: uppercase;
-    letter-spacing: 0.3px;
+    letter-spacing: 0.4px;
     opacity: 1;
 }
 .waitlist-trigger-btn:hover {
