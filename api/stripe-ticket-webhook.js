@@ -191,6 +191,33 @@ module.exports = async function handler(req, res) {
             await markReservationsByToken(metadata.reservationToken, 'Fulfilled', 'Completed');
             console.log(`Reservation fulfilled for session ${session.id}`);
 
+            // If this checkout came from a waiting list redemption, also mark
+            // the Waiting List row Converted + record the Stripe Session ID.
+            // Idempotent — flipping Converted -> Converted is a no-op PATCH.
+            if (metadata.waitingListRedemption === 'true' && metadata.waitingListId) {
+                try {
+                    await fetch(
+                        `https://api.airtable.com/v0/${CONFIG.baseId}/${encodeURIComponent('Waiting List')}/${metadata.waitingListId}`,
+                        {
+                            method: 'PATCH',
+                            headers: {
+                                'Authorization': `Bearer ${CONFIG.apiKey}`,
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                fields: {
+                                    'Status': 'Converted',
+                                    'Converted Session ID': session.id
+                                }
+                            })
+                        }
+                    );
+                    console.log(`Waiting List ${metadata.waitingListId} marked Converted`);
+                } catch (err) {
+                    console.error('Non-fatal: failed to mark Waiting List row Converted:', err);
+                }
+            }
+
         } catch (error) {
             console.error('Error creating ticket records:', error);
             return res.status(500).json({ error: error.message });
