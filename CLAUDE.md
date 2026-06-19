@@ -147,6 +147,40 @@ GOOGLE_WALLET_SERVICE_ACCOUNT_JSON     # Full contents of service-account.json (
 
 **Why this design:** Status flips are idempotent — webhook retries can't drift a counter because there's no shared counter cell to read-modify-write. Replaces a previous integer `Reserved` field that had a race-condition leak.
 
+### Waiting List Table
+**Purpose:** Customers who tried to buy a sold-out ticket type can join a per-event-record queue. When admin marks a Ticket `Cancelled`, the topmost queued waitlister gets emailed a 24h time-limited buy link. The held seat is reserved via a Reservations row with `Source = Waiting List` while they consider it.
+
+**Fields:**
+- `Waiting List ID` (autonumber, primary)
+- `Email`, `First Name`, `Surname`, `Phone`
+- `Event` — Linked record → Event (specific ticket type, not just event name)
+- `Quantity Wanted` (number) — **currently always 1** (see Phase 3 note below)
+- `Status` — single select: `Waiting`, `Notified`, `Converted`, `Expired`, `Removed`
+- `Joined At` (created time) — drives queue order (oldest first)
+- `Notified At` — when the redemption email was sent
+- `Redemption Token` (text) — UUID used as `?token=...` in the email link
+- `Token Expires At` (date+time) — 24h after `Notified At`
+- `Converted Session ID` — Stripe Session ID once the waitlister completes their purchase
+- `Reservations` — reverse-link from Reservations.`Waiting List Entry`
+
+**Architecture:**
+1. **Join** — Squarespace form (sold-out tickets only) POSTs to `/api/waiting-list/join` → creates a `Waiting` row.
+2. **Cancellation trigger** — Airtable automation watches Ticket `Status` → `Cancelled`. Runs `~/Documents/Vercel/airtable-scripts/SV-Ticketing-Base - waiting-list-on-cancellation.js`. The script finds the next eligible waitlister, generates a redemption token + a separate cart-reservation token, creates a Reservations row with `Source=Waiting List` to hold the seat for 24h, and flips the Waiting List row to `Notified`.
+3. **Redemption page** — Squarespace `/ticket-waiting-list?token=...`. Calls `/api/waiting-list/lookup/[token]` → renders event details + prefilled form. POST to `/api/waiting-list/redeem-checkout` → creates Stripe Checkout session that **reuses** the existing Reservation's token in metadata (no new reservation row, no double-counting).
+4. **Webhook completion** — `stripe-ticket-webhook.js` `.completed` handler runs its existing `markReservationsByToken(...Fulfilled)` (works because the cart token matches). If `metadata.waitingListRedemption === 'true'`, it also flips the Waiting List row to `Status=Converted` + sets `Converted Session ID`.
+
+**Phase 3 — multi-ticket support (future, Option C):**
+
+Currently every Waiting List entry is treated as 1 ticket — the Squarespace form forces `quantity = 1` via hidden input, and the cancellation script filters out any `Quantity Wanted > 1` rows entirely. This is deliberate Phase 1 simplification.
+
+A proper multi-ticket system would need to:
+- Track cumulative cancelled-but-not-yet-redeemed tickets per event
+- When N tickets become available cumulatively (over a 24h window), offer them to the oldest queued waitlister whose `Quantity Wanted ≤ N`
+- Hold ALL N seats together via N Reservations rows linked to that single Waiting List row
+- Handle partial redemption + partial expiry gracefully
+
+Estimated effort: ~half a day. Defer until multi-ticket demand actually materialises — most cancellations are single seats anyway. The simpler workaround for customers needing N tickets today is to join the waiting list N times with each attendee's email.
+
 ### Send Tickets Table
 - `Stripe Session ID` — Groups tickets for email automation
 - Airtable automation triggers on record creation to send ticket emails

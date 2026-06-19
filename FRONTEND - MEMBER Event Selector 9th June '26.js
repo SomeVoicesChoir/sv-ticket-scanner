@@ -1110,13 +1110,8 @@ function buildWaitingListUI(event, controlDiv, ticketTypesList) {
         '</div>' +
         '<label>Email<input type="email" name="wl-email" required></label>' +
         '<label>Phone (optional)<input type="tel" name="wl-phone" placeholder="+44 7xxx xxx xxx"></label>' +
-        '<label>How many tickets would you like?' +
-            '<select name="wl-qty">' +
-                '<option value="1">1</option><option value="2">2</option>' +
-                '<option value="3">3</option><option value="4">4</option>' +
-                '<option value="5">5</option><option value="6">6</option>' +
-            '</select>' +
-        '</label>' +
+        '<input type="hidden" name="wl-qty" value="1">' +
+        '<p style="font-size:12px;color:#666;margin:6px 0 14px;">We currently offer 1 ticket per waiting-list entry. If you need more than 1, please join the list with each attendee\'s email separately.</p>' +
         '<button type="button" class="waitlist-submit-btn" onclick="submitWaitingList(\'' + event.id + '\')">Add me to the list</button>' +
         '<div class="waitlist-message"></div>';
     ticketTypesList.appendChild(form);
