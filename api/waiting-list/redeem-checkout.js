@@ -164,7 +164,7 @@ module.exports = async function handler(req, res) {
             expires_at: stripeExpiresAt,
             allow_promotion_codes: true,
             success_url: 'https://somevoices.co.uk/ticket-success?session_id={CHECKOUT_SESSION_ID}',
-            cancel_url: `https://somevoices.co.uk/waiting-list-redeem?token=${encodeURIComponent(token)}`,
+            cancel_url: `https://somevoices.co.uk/ticket-waiting-list?token=${encodeURIComponent(token)}`,
             customer_email: email,
             automatic_tax: { enabled: true },
             custom_text: {
