@@ -49,6 +49,10 @@
     "api/wallet/google/all-by-session/[sessionId].js": {
       "memory": 1024,
       "maxDuration": 15
+    },
+    "api/waiting-list/join.js": {
+      "memory": 1024,
+      "maxDuration": 10
     }
   }
 }
