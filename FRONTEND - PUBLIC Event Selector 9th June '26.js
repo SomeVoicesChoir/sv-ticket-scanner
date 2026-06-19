@@ -200,8 +200,12 @@
     margin-top: 2px;
 }
 .ticket-sold-out {
-    opacity: 0.5;
     pointer-events: none;
+}
+/* Dim just the info side — leaves the controlDiv (waitlist button) at full
+   opacity. Inline pointer-events:auto on the button re-enables clicks. */
+.ticket-sold-out .ticket-type-info {
+    opacity: 0.5;
 }
 .ticket-sold-out .ticket-type-name::after {
     content: " - SOLD OUT";
