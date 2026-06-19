@@ -38,11 +38,14 @@ module.exports = async function handler(req, res) {
     if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
     try {
-        const { token, firstName, surname, email, phone, postcode, mailingListOptIn } = req.body || {};
+        const { token: rawToken, firstName, surname, email, phone, postcode, mailingListOptIn } = req.body || {};
 
-        if (!token || typeof token !== 'string') {
+        if (!rawToken || typeof rawToken !== 'string') {
             return res.status(400).json({ error: 'Missing redemption token' });
         }
+        // Strip BOM + zero-width chars (Airtable rich-text editor leakage).
+        const token = String(rawToken).replace(/[﻿​-‍⁠]/g, '').trim();
+
         if (!firstName || !surname || !email || !phone || !postcode) {
             return res.status(400).json({ error: 'Please complete every required field' });
         }
@@ -51,7 +54,7 @@ module.exports = async function handler(req, res) {
         }
 
         // ── Find the Waiting List row by token ───────────────────────
-        const safeToken = String(token).replace(/'/g, "\\'");
+        const safeToken = token.replace(/'/g, "\\'");
         const wlFormula = encodeURIComponent(`{Redemption Token} = '${safeToken}'`);
         const wlUrl = `https://api.airtable.com/v0/${CONFIG.baseId}/${encodeURIComponent(WAITING_LIST_TABLE)}?filterByFormula=${wlFormula}&maxRecords=1`;
 

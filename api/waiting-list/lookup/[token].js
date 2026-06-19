@@ -32,7 +32,11 @@ module.exports = async function handler(req, res) {
     }
 
     try {
-        const safeToken = String(token).replace(/'/g, "\\'");
+        // Strip BOM + zero-width chars that Airtable's rich-text email editor
+        // sometimes injects around dragged blue pills inside <a href="..."> —
+        // URL-encoded these become %EF%BB%BF and break the strict token match.
+        const cleanToken = String(token).replace(/[﻿​-‍⁠]/g, '').trim();
+        const safeToken = cleanToken.replace(/'/g, "\\'");
         const formula = encodeURIComponent(`{Redemption Token} = '${safeToken}'`);
         const lookupUrl = `https://api.airtable.com/v0/${CONFIG.baseId}/${encodeURIComponent(WAITING_LIST_TABLE)}?filterByFormula=${formula}&maxRecords=1`;
 
