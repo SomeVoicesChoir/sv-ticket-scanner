@@ -75,7 +75,7 @@ module.exports = async function handler(req, res) {
             });
             if (hasDuplicate) {
                 return res.status(409).json({
-                    error: `You're already on the waiting list for ${eventName}. We'll email you if a seat becomes available.`
+                    error: `You're already on the waiting list for ${eventName}. We'll email you if a ticket becomes available.`
                 });
             }
         }
@@ -115,7 +115,7 @@ module.exports = async function handler(req, res) {
             success: true,
             recordId: created.id,
             eventName,
-            message: `You're on the waiting list for ${eventName}. We'll email you if a seat becomes available.`
+            message: `You're on the waiting list for ${eventName}. We'll email you if a ticket becomes available.`
         });
 
     } catch (error) {

@@ -58,7 +58,7 @@ module.exports = async function handler(req, res) {
         if (status !== 'Notified') {
             const msg =
                 status === 'Converted' ? 'You have already used this link to purchase your ticket.' :
-                status === 'Expired'   ? 'This invitation has expired. We will email you again if another seat opens up.' :
+                status === 'Expired'   ? 'This invitation has expired. We will email you again if another ticket opens up.' :
                                          'This link is no longer valid.';
             return res.status(410).json({ error: msg });
         }
