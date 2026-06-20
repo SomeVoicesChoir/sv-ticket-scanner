@@ -11,6 +11,12 @@ const CONFIG = {
 };
 
 const WAITING_LIST_TABLE = 'Waiting List';
+const RESERVATIONS_TABLE = 'Reservations';
+
+// Hard cap on tickets a single waitlister can claim, even if more capacity
+// exists. Keeps a single 100-seat release from being snapped up by one
+// person. Update here and in redeem-checkout.js together if changing.
+const MAX_TICKETS_PER_REDEMPTION = 3;
 
 function fv(field, fallback = '') {
     if (!field) return fallback;
@@ -89,10 +95,38 @@ module.exports = async function handler(req, res) {
 
         const event = await eventResp.json();
 
+        // Fetch the linked Reservation so we can read its current Quantity.
+        // The waitlister's existing hold is ALREADY counted in `Tickets Remaining`
+        // via the Reserved rollup, so we add their hold quantity back to compute
+        // their true claim ceiling.
+        const reservationLinks = wlRow.fields['Reservations'] || [];
+        let holdQuantity = 1;
+        if (reservationLinks.length > 0) {
+            const resvUrl = `https://api.airtable.com/v0/${CONFIG.baseId}/${encodeURIComponent(RESERVATIONS_TABLE)}/${reservationLinks[0]}`;
+            const resvResp = await fetch(resvUrl, { headers: { 'Authorization': `Bearer ${CONFIG.apiKey}` } });
+            if (resvResp.ok) {
+                const resv = await resvResp.json();
+                // Only count an Active hold — if it's been Released (e.g. user
+                // abandoned a previous checkout) treat as zero.
+                if (resv.fields['Status'] === 'Active') {
+                    holdQuantity = Number(resv.fields['Quantity']) || 1;
+                } else {
+                    holdQuantity = 0;
+                }
+            }
+        }
+
+        const ticketsRemaining = Number(event.fields['Tickets Remaining'] || 0);
+        // Their true max = their existing hold + public available
+        // (Tickets Remaining already excludes their hold via the Reserved rollup)
+        const maxClaim = holdQuantity + Math.max(0, ticketsRemaining);
+        const availableTickets = Math.max(0, Math.min(MAX_TICKETS_PER_REDEMPTION, maxClaim));
+
         return res.status(200).json({
             ok: true,
             token: token,
             expiresAt: expiresAtStr,
+            availableTickets: availableTickets,
             event: {
                 id: event.id,
                 name: fv(event.fields['Event Name']),

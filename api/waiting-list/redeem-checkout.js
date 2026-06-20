@@ -23,6 +23,10 @@ const CONFIG = {
 const WAITING_LIST_TABLE = 'Waiting List';
 const RESERVATIONS_TABLE = 'Reservations';
 
+// Hard cap on tickets a single waitlister can claim. Keep in sync with
+// MAX_TICKETS_PER_REDEMPTION in api/waiting-list/lookup/[token].js.
+const MAX_TICKETS_PER_REDEMPTION = 3;
+
 function fv(field, fallback = '') {
     if (!field) return fallback;
     if (Array.isArray(field)) return field[0] || fallback;
@@ -38,7 +42,7 @@ module.exports = async function handler(req, res) {
     if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
     try {
-        const { token: rawToken, firstName, surname, email, phone, postcode, mailingListOptIn } = req.body || {};
+        const { token: rawToken, firstName, surname, email, phone, postcode, mailingListOptIn, quantity: rawQuantity } = req.body || {};
 
         if (!rawToken || typeof rawToken !== 'string') {
             return res.status(400).json({ error: 'Missing redemption token' });
@@ -51,6 +55,14 @@ module.exports = async function handler(req, res) {
         }
         if (!String(email).includes('@')) {
             return res.status(400).json({ error: 'Please enter a valid email' });
+        }
+
+        // Quantity: default 1, must be integer in [1, MAX_TICKETS_PER_REDEMPTION].
+        // Capacity check (against live Tickets Remaining) happens after we have
+        // the linked Event in hand a few lines below.
+        const quantity = Math.floor(Number(rawQuantity) || 1);
+        if (!Number.isFinite(quantity) || quantity < 1 || quantity > MAX_TICKETS_PER_REDEMPTION) {
+            return res.status(400).json({ error: `Quantity must be between 1 and ${MAX_TICKETS_PER_REDEMPTION}.` });
         }
 
         // ── Find the Waiting List row by token ───────────────────────
@@ -119,9 +131,42 @@ module.exports = async function handler(req, res) {
         const price = Number(event.fields['Ticket Price'] || 0);
         const bookingFee = Number(event.fields['Booking Fee'] || 0);
         const stripePriceId = event.fields['Stripe Price ID'] || '';
+        const ticketsRemaining = Number(event.fields['Tickets Remaining'] || 0);
 
         if (price <= 0) {
             return res.status(500).json({ error: 'Event has no price set. Please contact support.' });
+        }
+
+        // ── Capacity check ───────────────────────────────────────────
+        // Their existing hold quantity is already counted in Tickets Remaining
+        // via the Reserved rollup, so add it back to compute their true ceiling.
+        const currentHoldQty = (reservation.fields['Status'] === 'Active')
+            ? (Number(reservation.fields['Quantity']) || 1)
+            : 0;
+        const maxClaim = Math.min(MAX_TICKETS_PER_REDEMPTION, currentHoldQty + Math.max(0, ticketsRemaining));
+        if (quantity > maxClaim) {
+            return res.status(409).json({
+                error: maxClaim === 0
+                    ? 'No tickets are available for this event right now.'
+                    : `Only ${maxClaim} ticket${maxClaim > 1 ? 's' : ''} available — please reduce your quantity and try again.`
+            });
+        }
+
+        // ── Update the Reservation's Quantity BEFORE creating Stripe Checkout
+        // so that Reserved goes up by the extra seats immediately, protecting
+        // them from a public sniper during the next 30 mins of checkout.
+        if (currentHoldQty !== quantity) {
+            const qtyPatchResp = await fetch(resvUrl, {
+                method: 'PATCH',
+                headers: {
+                    'Authorization': `Bearer ${CONFIG.apiKey}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ fields: { 'Quantity': quantity, 'Status': 'Active' } })
+            });
+            if (!qtyPatchResp.ok) {
+                return res.status(500).json({ error: 'Could not hold the requested number of tickets. Please try again.' });
+            }
         }
 
         // ── Build Stripe Checkout line items ─────────────────────────
@@ -138,7 +183,7 @@ module.exports = async function handler(req, res) {
                     }
                 }
             },
-            quantity: 1
+            quantity: quantity
         }];
 
         if (bookingFee > 0) {
@@ -151,7 +196,7 @@ module.exports = async function handler(req, res) {
                         description: `Booking fee for ${eventName}`
                     }
                 },
-                quantity: 1
+                quantity: quantity
             });
         }
 
@@ -185,8 +230,8 @@ module.exports = async function handler(req, res) {
                 attendeeEmail: email,
                 phone: phone,
                 postcode: postcode,
-                ticketsData: JSON.stringify([{ eventId: eventId, quantity: 1, ticketType: ticketTypePrice }]),
-                totalQuantity: '1',
+                ticketsData: JSON.stringify([{ eventId: eventId, quantity: quantity, ticketType: ticketTypePrice }]),
+                totalQuantity: String(quantity),
                 eventName: eventName,
                 dateTime: dateTime,
                 venueAddress: venueAddress,
@@ -214,7 +259,7 @@ module.exports = async function handler(req, res) {
             body: JSON.stringify({ fields: { 'Stripe Session ID': session.id } })
         }).catch(err => console.error('Non-fatal: failed to patch Session ID onto held reservation:', err));
 
-        console.log(`Waiting list redeem checkout ${session.id} for ${email} (Event ${eventId})`);
+        console.log(`Waiting list redeem checkout ${session.id} for ${email} (Event ${eventId}, qty ${quantity})`);
         return res.status(200).json({ sessionId: session.id, expiresAt: stripeExpiresAt });
 
     } catch (error) {
