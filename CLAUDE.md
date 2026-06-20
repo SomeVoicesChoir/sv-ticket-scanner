@@ -36,6 +36,9 @@ Vercel-deployed ticketing system for Some Voices choir events. Handles ticket pu
 | `wallet/apple/all-by-session/[sessionId].js` | Generate `.pkpasses` bundle (all tickets for a session, one tap to add) | GET | 30s |
 | `wallet/google/[ticketId].js` | Single-ticket Google Wallet — signs JWT, 302 redirects to Google save URL | GET | 15s |
 | `wallet/google/all-by-session/[sessionId].js` | Bundle JWT containing all tickets for a session | GET | 15s |
+| `waiting-list/join.js` | Add a customer to the per-event Waiting List (sold-out path) | POST | 10s |
+| `waiting-list/lookup/[token].js` | Validate a redemption token + return event/customer details for the claim page | GET | 10s |
+| `waiting-list/redeem-checkout.js` | Create Stripe Checkout reusing the held Reservation token (marks Waiting List `Converted` via webhook) | POST | 15s |
 
 ### Scripts (local-only, not deployed)
 
@@ -44,6 +47,9 @@ Vercel-deployed ticketing system for Some Voices choir events. Handles ticket pu
 ### Frontend Files (Copy-paste into Squarespace)
 - `FRONTEND - PUBLIC Event Selector 9th Feb '26.js` — Public ticket purchasing
 - `FRONTEND - MEMBER Event Selector 9th Feb '26.js` — Member event selector
+- `FRONTEND - PUBLIC Event Selector 9th June '26.js` — Public selector with sold-out "Join Waiting List" button (Phase 1)
+- `FRONTEND - MEMBER Event Selector 9th June '26.js` — Member selector with sold-out "Join Waiting List" button (Phase 1)
+- `FRONTEND - WAITING LIST REDEMPTION 19th June '26.js` — `/ticket-waiting-list?token=...` redemption claim page. **Files include a "PASTE FROM HERE" banner near the top** — copy from there down (the leading `//` doc comments are for the repo only; Squarespace renders them as visible text on the page).
 
 ### Scanner App
 - `/index.html` — QR code scanning interface for door staff
@@ -154,7 +160,7 @@ GOOGLE_WALLET_SERVICE_ACCOUNT_JSON     # Full contents of service-account.json (
 - `Waiting List ID` (autonumber, primary)
 - `Email`, `First Name`, `Surname`, `Phone`
 - `Event` — Linked record → Event (specific ticket type, not just event name)
-- `Quantity Wanted` (number) — **currently always 1** (see Phase 3 note below)
+- `Quantity Wanted` (number) — what the customer asked for on the join form. **Always 1** (form forces it via hidden input). Each waitlister can now claim up to 3 at the redemption page (June 20, 2026) — see "Multi-ticket redemption" below.
 - `Status` — single select: `Waiting`, `Notified`, `Converted`, `Expired`, `Removed`
 - `Joined At` (created time) — drives queue order (oldest first)
 - `Notified At` — when the redemption email was sent
@@ -163,23 +169,44 @@ GOOGLE_WALLET_SERVICE_ACCOUNT_JSON     # Full contents of service-account.json (
 - `Converted Session ID` — Stripe Session ID once the waitlister completes their purchase
 - `Reservations` — reverse-link from Reservations.`Waiting List Entry`
 
+**Related Event-table field (added June 20, 2026):**
+- `Target Allocation` (number) — admin types the new desired total Allocation here. The "Apply Target Allocation" automation atomically holds a seat for the next waitlister, bumps Allocation, and clears this field. See "Target Allocation" below.
+
+**Related Reservations-table Source option (added June 20, 2026):**
+- `Waiting List Hold` — placeholder Reservations created by the "Apply Target Allocation" script that hold a seat for the next waitlister before the Allocation increase becomes visible. Promoted to `Waiting List` once linked to a Waiting List Entry by the per-row "Promote from Hold" automation.
+
 **Architecture:**
 1. **Join** — Squarespace form (sold-out tickets only) POSTs to `/api/waiting-list/join` → creates a `Waiting` row.
-2. **Cancellation trigger** — Airtable automation watches Ticket `Status` → `Cancelled`. Runs `~/Documents/Vercel/airtable-scripts/SV-Ticketing-Base - waiting-list-on-cancellation.js`. The script finds the next eligible waitlister, generates a redemption token + a separate cart-reservation token, creates a Reservations row with `Source=Waiting List` to hold the seat for 24h, and flips the Waiting List row to `Notified`.
+2. **Cancellation trigger** — Airtable automation watches Ticket `Status` → `Cancelled`. Runs `~/Documents/Vercel/airtable-scripts/SV-Ticketing-Base - waiting-list-on-cancellation.js`. The script finds the next eligible waitlister, generates a redemption token + a separate cart-reservation token, creates a Reservations row with `Source=Waiting List` to hold the seat for 24h, and flips the Waiting List row to `Notified`. Outputs include `claimUrl` — a pre-built `/ticket-waiting-list?token=...` URL the email template uses as the **entire** `href` value (single blue pill, no plain-text/pill boundary inside the attribute — see "Airtable rich-text editor BOM injection" learning).
 3. **Redemption page** — Squarespace `/ticket-waiting-list?token=...`. Calls `/api/waiting-list/lookup/[token]` → renders event details + prefilled form. POST to `/api/waiting-list/redeem-checkout` → creates Stripe Checkout session that **reuses** the existing Reservation's token in metadata (no new reservation row, no double-counting).
 4. **Webhook completion** — `stripe-ticket-webhook.js` `.completed` handler runs its existing `markReservationsByToken(...Fulfilled)` (works because the cart token matches). If `metadata.waitingListRedemption === 'true'`, it also flips the Waiting List row to `Status=Converted` + sets `Converted Session ID`.
+5. **Hourly expiry sweep** — Scheduled Airtable automation (hourly). Runs `~/Documents/Vercel/airtable-scripts/SV-Ticketing-Base - waiting-list-hourly-expiry-sweep.js`. Walks every `Notified` row, flips any whose `Token Expires At < NOW()` to `Status=Expired`. No emails, no per-row logic — bulk-mark only.
+6. **On-expired re-notify** — Per-record Airtable automation triggered by Waiting List `Status` becoming `Expired`. Runs `~/Documents/Vercel/airtable-scripts/SV-Ticketing-Base - waiting-list-on-expired.js`. Releases the linked Reservation (`Status=Released` → seat back to public pool if nobody else takes it), finds the next eligible `Waiting` row for the same Event, creates a fresh Reservation + token + 24h expiry, marks them `Notified`, and emits the same outputs as the cancellation script so the same email template body can be reused without re-mapping blue pills. Why two automations (sweep + per-row) rather than one: Airtable's Send-email step is one email per automation run, so a burst of N expiries needs to fan out into N independent runs — the cron does the bulk mark; each per-row trigger does its own email.
+7. **Apply Target Allocation** — Per-record Airtable automation triggered by Event `Target Allocation` field being updated. Runs `~/Documents/Vercel/airtable-scripts/SV-Ticketing-Base - waiting-list-apply-target-allocation.js`. Computes `delta = Target - current Allocation`; if positive AND at least one waitlister is queued for the event, creates ONE `Source = Waiting List Hold` Reservation (Q=1) BEFORE bumping `Allocation` to the target (atomicity protects the held seat from public sniping during the brief window). Clears `Target Allocation` afterwards. If no waitlister exists, just bumps Allocation. The single Hold triggers the per-row "Promote from Hold" automation next.
+8. **Promote from Hold** — Per-record Airtable automation triggered by Reservation matching `Source = Waiting List Hold` AND `Status = Active`. Runs `~/Documents/Vercel/airtable-scripts/SV-Ticketing-Base - waiting-list-promote-from-hold.js`. Finds the next eligible `Waiting` row for the linked Event, converts the placeholder Reservation in-place (flips Source to `Waiting List`, sets Reservation Token, links the Waiting List Entry), generates a Redemption Token + 24h expiry on the Waiting List row, marks it Notified, and emits the same outputs as the cancellation script. If no waitlister exists (race condition), flips the placeholder to `Released` so the seat goes to public.
 
-**Phase 3 — multi-ticket support (future, Option C):**
+**Multi-ticket redemption (June 20, 2026):** The redemption page (`/ticket-waiting-list?token=...`) now shows a "There is/are N tickets available" message + a +/- quantity selector capped at 3. `availableTickets` is computed in `/api/waiting-list/lookup/[token]` as `min(3, holdQuantity + max(0, Tickets Remaining))` — i.e. their personal hold plus any public capacity, capped at the per-redemption ceiling. `/api/waiting-list/redeem-checkout` accepts a `quantity` POST param, re-validates against live `Tickets Remaining`, updates the Reservation's `Quantity` to the chosen value BEFORE creating Stripe Checkout (atomic seat-hold against public sniping during the 30-min Stripe session), and scales the Stripe line items + `ticketsData` metadata by the chosen quantity. The webhook then creates N Ticket records via the existing `ticketsData` metadata flow used by public buys.
 
-Currently every Waiting List entry is treated as 1 ticket — the Squarespace form forces `quantity = 1` via hidden input, and the cancellation script filters out any `Quantity Wanted > 1` rows entirely. This is deliberate Phase 1 simplification.
+**Notify-only-#1 model (June 20, 2026):** The Apply Target Allocation script deliberately creates ONE Hold regardless of `delta` — only the top-of-queue waitlister is notified per Allocation increase. The remaining `delta - 1` seats go to public. The trade-off: if WL#1 only claims part of what they could (e.g. 1 of 3 available), the unclaimed seats go to public rather than cascading down the queue. The alternative — a full "Pool" pattern with cascading promotion until queue empty — was scoped (single `Source = "Waiting List Pool"` Reservation with `Q = delta`, with restoration logic in `on-expired` and `redeem-checkout`) but deferred. For typical 3-4-per-event-life Allocation changes with small deltas, the leftover-to-public outcome is acceptable. Upgrading later is a script-only change — no schema migration. See doc comment in `waiting-list-apply-target-allocation.js`.
 
-A proper multi-ticket system would need to:
-- Track cumulative cancelled-but-not-yet-redeemed tickets per event
-- When N tickets become available cumulatively (over a 24h window), offer them to the oldest queued waitlister whose `Quantity Wanted ≤ N`
-- Hold ALL N seats together via N Reservations rows linked to that single Waiting List row
-- Handle partial redemption + partial expiry gracefully
+**Phase 2C hardening — Airtable BOM defenses + cosmetic stripping (June 19, 2026):**
 
-Estimated effort: ~half a day. Defer until multi-ticket demand actually materialises — most cancellations are single seats anyway. The simpler workaround for customers needing N tickets today is to join the waiting list N times with each attendee's email.
+Three layers of defense against Airtable rich-text editor BOM (`U+FEFF`) and zero-width character contamination when blue pills are dragged into `<a href="..."` attributes (URL-encoded as `%EF%BB%BF`, breaks strict token match):
+
+1. **Squarespace page** (`FRONTEND - WAITING LIST REDEMPTION...js`) — `getToken()` strips `[﻿​-‍⁠]` (BOM + ZWSP/ZWNJ/ZWJ + word joiner) from `?token=...` immediately after reading
+2. **`/api/waiting-list/lookup/[token].js`** — same regex applied to incoming `token` query param before the Airtable `filterByFormula` lookup
+3. **`/api/waiting-list/redeem-checkout.js`** — same regex applied to `token` in POST body before lookup AND before passing through to Stripe metadata
+
+The **source fix** is the `claimUrl` output on the script (step 2 above) — when the entire `href` value is a single blue pill with no surrounding plain text, Airtable's editor has no boundary to wrap with BOMs. The three strip layers are belt-and-braces for any future template that goes wrong.
+
+**Phase 3 — multi-ticket support (partially shipped June 20, 2026):**
+
+Each waitlister can now claim **up to 3 tickets** at the redemption page (see "Multi-ticket redemption" above). The join form still forces `Quantity Wanted = 1` because the value tracks "what they asked for at join time" rather than what they end up claiming — the cap-of-3 lives on the redemption page itself, not in the queue metadata.
+
+Open future work (not yet built):
+- Track cumulative cancelled-but-not-yet-redeemed tickets per event so multiple cancellations within a 24h window can be offered atomically to one waitlister
+- Allow waitlisters to specify desired quantity at join time (currently always 1; the redemption page lets them up to 3 regardless)
+- Full "Pool" cascade for Allocation increases (currently leftover beyond what WL#1 claims goes to public; see "Notify-only-#1 model" note above)
 
 ### Send Tickets Table
 - `Stripe Session ID` — Groups tickets for email automation
@@ -629,3 +656,189 @@ Customers can now add their tickets to Apple Wallet or Google Wallet via buttons
 **Known follow-ups:**
 - Apple cert renewal in ~1 year — set calendar reminder
 - Google production access **approved on 2026-05-22** — Pass Class status is `APPROVED`, any Android customer can save passes immediately
+
+---
+
+## Session Log: June 19, 2026
+
+### Waiting List Phase 2C — fully shipped + automated end-to-end
+
+Whole-day push to close Phase 2C. Cancellation → email → claim → checkout was already working. Today added the polish, hardened the token plumbing, and built the self-healing expiry loop so the system runs without human intervention.
+
+#### Squarespace redemption page (`FRONTEND - WAITING LIST REDEMPTION 19th June '26.js`)
+
+Saved the page into the repo as a versioned file alongside the Event Selectors. Three visible iterations during the session:
+
+- Greeting changed to "Hi {firstName} — a ticket has just become available." (was "opened up for you")
+- Event details box font +1 step (16 → 18 px body, 20 → 22 px event name)
+- Expiry text font +2 steps (14 → 18 px)
+- Card nudged 30 px right via `transform: translateX(30px)` to feel visually centred against the Squarespace page chrome; reset on screens ≤ 700 px so it doesn't push off
+- Submit button: text → **"Proceed to payment"**, font 16 → 19 px, padding 16 → 18 px
+- Event name string strips trailing `(...)` parenthetical — Airtable's `Event Name` field includes the date for use in emails / receipts, but here the date is already rendered separately below
+
+**Squarespace embed gotchas — wrote into the file's header doc:**
+- Squarespace renders `//` lines as plain text because they're outside any `<script>` tag → file now has an unmissable `▼▼▼ PASTE FROM HERE ▼▼▼` banner between the repo doc header and the embed content
+- Squarespace's theme hijacks `<form>` submit events from Code Block embeds → switched the submit button to `type="button"` and bound a `click` handler instead; replaced lost HTML5 `required` validation with explicit "Please fill in: X, Y" inline check
+
+#### Email template — final polish
+
+- Button colour beige `#f4dbc0` with `color:#000 !important` + inner `<span style="color:#000;">` wrap (some clients strip colour from `<a>` but respect it on inner elements)
+- Button text literal capitals (`CLAIM YOUR TICKET`) rather than CSS `text-transform: uppercase` — some clients strip the CSS
+- HTML collapsed to a single line so newlines between `<a>` and the text don't get rendered as siblings below the button (Outlook quirk)
+- `expiresAt` reformatted from raw ISO (`2026-06-20T13:40:42.907Z`) to friendly Europe/London string: **"Friday 20 June 2026 at 1:40 PM (UK time)"** — done in the script via `Intl.DateTimeFormat.formatToParts()`. The Waiting List row's `Token Expires At` field still stores ISO (Airtable date field needs ISO; `redeem-checkout` compares with `new Date(...).getTime() < Date.now()`).
+
+#### Airtable rich-text editor BOM injection — root cause and three-layer fix
+
+After moving the email Send step inside a Conditional Logic wrapper, customers' click-through URLs came back as `?token=%EF%BB%BF%EF%BB%BFbe01...`. The "claim ticket" link 404'd because the BOMs broke the strict `{Redemption Token} = '...'` filter formula on the lookup endpoint.
+
+**Why it started now and not before**: deleting the Send-email step (necessary because Conditional Logic creates a parent wrapper and can't be slotted between two existing actions on this Airtable plan) meant re-dragging the `redemptionToken` blue pill back into the `<a href="...token=">` attribute. The new drag landed in a position that triggered Airtable's editor to "protect" the pill with invisible `U+FEFF` chars on either side. The original drag (months ago) happened to land cleanly.
+
+**Three layers of defense added**:
+
+1. `FRONTEND - WAITING LIST REDEMPTION 19th June '26.js` — `getToken()` strips `[﻿​-‍⁠]` (BOM + ZWSP/ZWNJ/ZWJ + word joiner) immediately after reading `?token=`
+2. `api/waiting-list/lookup/[token].js` — same regex applied to incoming token before the Airtable lookup
+3. `api/waiting-list/redeem-checkout.js` — same regex applied before lookup AND before passing through to Stripe metadata
+
+**Source fix (the real solve)**: added `claimUrl` output to the cancellation + on-expired scripts: `const claimUrl = 'https://somevoices.co.uk/ticket-waiting-list?token=' + redemptionToken;` → email template uses `{claimUrl}` as the **entire** `href` value (single blue pill with no plain-text boundary for the editor to wrap with BOMs). Future emails come out clean; the three strip layers are belt-and-braces.
+
+#### Two new automations — self-healing expiry loop
+
+Built the daily expiry flow as **two automations**, not one, because Airtable's Send-email step is one email per automation run. A burst of N expiries needs to fan out into N independent runs.
+
+**Hourly Expiry Sweep** (new file: `~/Documents/Vercel/airtable-scripts/SV-Ticketing-Base - waiting-list-hourly-expiry-sweep.js`)
+- Trigger: At scheduled time → Hourly
+- Walks every `Notified` row, flips any whose `Token Expires At < NOW()` to `Status=Expired`
+- Uses `updateRecordsAsync` in 50-record chunks (Airtable's hard limit)
+- No emails, no per-row logic — bulk-mark only
+
+**On-Expired Re-Notify** (new file: `~/Documents/Vercel/airtable-scripts/SV-Ticketing-Base - waiting-list-on-expired.js`)
+- Trigger: When record matches conditions → Waiting List `Status` is `Expired`
+- Releases the linked Reservation (`Status=Released` so seat goes back to public pool)
+- Finds the next eligible `Waiting` row (oldest by Joined At, Quantity Wanted ≤ 1)
+- Creates fresh Reservation + token + 24h expiry, marks them `Notified`
+- Outputs `notified`, `email`, `firstName`, `eventName`, `claimUrl`, `expiresAt` — identical names to the cancellation script so the email body copy-pastes between automations without re-mapping any blue pills
+- Conditional Logic action (tick the `notified` checkbox) → Send email
+
+End-to-end the system now:
+1. Customer joins waiting list → row created with `Status=Waiting`
+2. Public ticket cancelled → cancellation script picks next eligible, holds Reservation, sends claim email
+3. Customer claims (webhook → `Status=Converted`) **or** ignores
+4. Within the next hour of expiry, sweep flips `Status=Expired`
+5. That status change triggers the re-notify automation → releases old Reservation, finds next waitlister, sends new claim email
+6. Loop continues until someone claims or the list runs dry — then released Reservation puts the seat back in the public pool
+
+### Key learnings worth preserving
+
+**Airtable Conditional Logic can't be inserted between existing actions on Business plan** (or it's a UI bug — only appears when added at the end of a chain). Workaround: delete the downstream action(s), add Conditional Logic, then re-add the deleted actions inside the Then branch. **Each delete + re-add carries the BOM-injection risk** described above when blue pills get re-dragged into HTML attributes. Use a precomposed `claimUrl` output to keep `href` values free of mixed text + pill content.
+
+**Airtable's "Conditional logic" UI renders boolean (`output.set('notified', true|false)`) outputs as a tickbox** — not a typed value field. Tick the box = "condition true when notified is true". This caught me trying to type the word `true`.
+
+**Airtable single-select fields require `{ name: 'Option' }` form when used with `createRecordAsync`**, but accept bare strings on `updateRecordAsync`. Already documented; reinforced today when copying the cancellation script pattern into the on-expired script.
+
+**Airtable output variables don't appear in downstream blue-pill dropdowns until they're `output.set()`-ed in at least one test run** with non-empty values. Init every output at the top of the script with empty-string / `false` defaults so early-return paths still expose the variable name to downstream steps.
+
+**Squarespace Code Block hijacks `<form>` submit** events from embeds. Switch the button to `type="button"` + bind `click` handler + replicate HTML5 validation manually (we surface "Please fill in: X" inline error in this codepath).
+
+**Airtable rich-text editor injects invisible BOM/zero-width chars around dragged blue pills inside HTML attribute values**. Mitigations (in priority order):
+1. Use a single output for the full URL so the pill IS the attribute value
+2. Server-side strip incoming chars in the regex `/[﻿​-‍⁠]/g` before any strict match
+3. Client-side strip on read so the address bar value is also clean if you do `history.replaceState`
+
+### Files Modified / Added Today
+
+- **New (saved to repo)**: `FRONTEND - WAITING LIST REDEMPTION 19th June '26.js`
+- **New (airtable-scripts/)**: `SV-Ticketing-Base - waiting-list-hourly-expiry-sweep.js`, `SV-Ticketing-Base - waiting-list-on-expired.js`
+- **Modified (airtable-scripts/)**: `SV-Ticketing-Base - waiting-list-on-cancellation.js` — friendly `expiresAt` format, added `claimUrl` output
+- **Modified API**: `api/waiting-list/lookup/[token].js`, `api/waiting-list/redeem-checkout.js` — BOM/zero-width strip
+- **Commit** `b21835a` shipped the API + new frontend file
+
+### Where it ends
+
+Waiting List Phases 1, 2A, 2B, 2C are all live. The whole system is now self-running. Failures will only surface when users alert us (or when periodic checks of Airtable automation history / Vercel function logs catch a red run before customers do). No further work planned unless multi-ticket Phase 3 demand actually materialises.
+
+---
+
+## Session Log: June 20, 2026
+
+### Waiting List — multi-ticket redemption + Target Allocation flow
+
+Two related extensions to yesterday's self-running waiting list system, both live in production by end of day.
+
+#### Multi-ticket redemption (up to 3 tickets per waitlister)
+
+Until today, each waitlister could only claim 1 ticket regardless of how much capacity was available. Customers landing on the redemption page after a cancellation often had public capacity sitting unused next to their hold. Today's change: the page now shows "There is 1 / are N tickets available" with a +/- selector capped at 3.
+
+**Why 3 and not "all available":** prevents a single waitlister from grabbing a large Allocation release in full (e.g. a 100-seat venue expansion), leaving nothing for the rest of the queue. The cap is a soft compromise between "let waitlisters take what they want" and "respect the queue".
+
+**Files changed (committed `b98dacf`):**
+
+- `api/waiting-list/lookup/[token].js` — fetches the linked Reservation to read its `Quantity` + `Status`, computes `availableTickets = min(3, holdQuantity + max(0, ticketsRemaining))`. Hold counts as 0 if `Status != Active` (e.g. abandoned previous checkout) so retries work cleanly. Returns `availableTickets` at the top level of the response.
+
+- `api/waiting-list/redeem-checkout.js` — accepts `quantity` in POST body (default 1, validated as integer 1–3). Re-reads live `Tickets Remaining` and rejects (`409` with descriptive message) if `quantity > currentHoldQty + max(0, ticketsRemaining)`. **Critically: updates the Reservation's `Quantity` field BEFORE creating Stripe Checkout** — this atomic seat-hold extension protects the additional seats from public sniping during the 30-min Stripe session window. Also sets `Status = 'Active'` defensively in case the row had been Released by a prior abandoned attempt. Scales Stripe line items (ticket + booking fee) and `ticketsData` / `totalQuantity` metadata by the chosen quantity.
+
+- `FRONTEND - WAITING LIST REDEMPTION 19th June '26.js` — new `.wl-availability` box between expiry text and form; beige-tinted to match brand. Renders "There is 1 ticket available." (singular) or "There are N tickets available." (plural) with bold N. +/- buttons disable at 1 / max. Live `Total: £X.YY` updates per click including `(ticketPrice + bookingFee) * quantity`. POST body includes `quantity`. **Edge case branch:** if `availableTickets = 0` (rare race), hides the form entirely and shows a friendly sold-out message; the invitation stays live so the next cascade can promote them again.
+
+**No schema changes required** — `Tickets Remaining`, `Reservation.Quantity`, `Reservation.Status` all existed. The webhook already creates N Ticket records from the `ticketsData` metadata array (same path public buys use).
+
+#### Target Allocation — single-field admin workflow for capacity increases
+
+Until today, increasing `Allocation` on an Event row updated the public `Tickets Remaining` formula immediately, with no way to hold the new seats for the waiting list. Admin could open 5 seats and the public could grab all 5 before any waitlister was notified.
+
+Today's change: a new `Target Allocation` field lets admin type the desired new total. An automation atomically holds a seat for the top-of-queue waitlister BEFORE bumping the visible Allocation, so the held seat is never publicly visible.
+
+**Admin UX:** Open the Event row, type `<current + N>` into `Target Allocation`, save. Done.
+
+**Files added** (under `~/Documents/Vercel/airtable-scripts/`):
+
+- `SV-Ticketing-Base - waiting-list-apply-target-allocation.js` — reads `delta = Target - Allocation`. If positive AND at least one eligible waitlister exists for this event, creates ONE placeholder Reservation with `Source = 'Waiting List Hold'`, `Quantity = 1`, `Status = 'Active'` linked to the Event. Then bumps Allocation to the target value and clears `Target Allocation`. The single Hold triggers the per-row "Promote from Hold" automation next.
+
+- `SV-Ticketing-Base - waiting-list-promote-from-hold.js` — reads the placeholder Reservation, finds the next eligible `Waiting` row for the linked Event (oldest by `Joined At`, `Quantity Wanted ≤ 1`), then **converts the placeholder in place** (flips Source to `Waiting List`, sets Reservation Token, links the Waiting List Entry). Generates Redemption Token + 24h expiry on the Waiting List row, marks it `Notified`. Defensive: if no waitlister exists (concurrent processing), flips the placeholder to `Released`. Emits the same outputs as the cancellation script (`notified`, `email`, `firstName`, `eventName`, `claimUrl`, `expiresAt`, etc.) so the same email body copy-pastes between automations without re-mapping blue pills.
+
+**Schema additions (manual in Airtable):**
+
+- New field on Event: `Target Allocation` (Number, allow 0)
+- New option on Reservations `Source` single-select: `Waiting List Hold`
+
+**Two new Airtable automations:**
+
+| # | Name | Trigger | Action |
+|---|------|---------|--------|
+| 1 | Waiting List — apply target allocation | When record updated → Event → fields watched: `Target Allocation` | Run script (`waiting-list-apply-target-allocation.js`), input `eventId = Airtable Record ID` |
+| 2 | Waiting List — promote from hold | When record matches conditions → Reservations → `Source is Waiting List Hold` AND `Status is Active` | Run script (`waiting-list-promote-from-hold.js`), input `reservationId = Airtable Record ID` → Conditional (tick `notified`) → Send email (body copy-pasted from on-expired/cancellation, fresh blue pills from this script step) |
+
+### Key learning worth preserving
+
+**"Notify only #1" model for Allocation increases — and why we picked it over the full Pool design**
+
+When `Target Allocation` bumps capacity by `delta`, the script creates **one Hold regardless of delta**. So if admin opens 5 seats, only the top waitlister gets emailed; the other 4 go to public. The trade-off: if WL#1 only claims part of what they could (e.g. takes 1 of 3 available via the multi-ticket page), the unclaimed seats go to public rather than cascading down the queue.
+
+The user (Curtis) initially wanted **all** new capacity reserved for waitlist with cascade-through-queue logic ("a Pool pattern"). After laying out the design (single `Source = 'Waiting List Pool'` Reservation with `Q = delta`, restoration logic in `on-expired` + `redeem-checkout` to push leftover back to pool, new "After Convert" automation to promote the next waitlister), we agreed the implementation was significant — 4 file modifications + 1 new automation + restoration logic that needs to handle race conditions carefully — and the practical difference for small deltas (3-4 Allocation changes per event life, usually opening 1-5 seats) is small enough to defer.
+
+The doc comment in `waiting-list-apply-target-allocation.js` calls out the upgrade path for future-Claude / future-Curtis: it's a script-only change, no schema migration required, so we can swap it in if the leftover-to-public behaviour ever bites in practice.
+
+### Other Airtable footguns surfaced today
+
+**Conditional Logic in Airtable automations cannot be inserted between two existing actions** — even on Business plan, the "Add advanced logic or action → Conditional logic" option only appears *after* the last existing action. To wrap an existing action in a conditional: delete the downstream action, add Conditional Logic (which now appears), then re-add the deleted action inside the Then branch. (This is how today's "Promote from Hold" automation was wired with the Send Email step inside a `notified` check — same pattern as on-expired.)
+
+**Conditional Logic renders boolean script outputs as a checkbox**, not a typed-value field. The blue pill for `output.set('notified', true|false)` shows up as a tickbox in the condition editor. Tick = "send email when notified is true". Easy to overlook on first try.
+
+### Files Modified / Added Today
+
+- **API (deployed `b98dacf`)**: `api/waiting-list/lookup/[token].js`, `api/waiting-list/redeem-checkout.js`
+- **Squarespace (re-pasted)**: `FRONTEND - WAITING LIST REDEMPTION 19th June '26.js`
+- **New (airtable-scripts/)**: `SV-Ticketing-Base - waiting-list-apply-target-allocation.js`, `SV-Ticketing-Base - waiting-list-promote-from-hold.js`
+- **Airtable schema**: `Target Allocation` field on Event, `Waiting List Hold` option on Reservations `Source`
+- **Airtable automations**: 2 new (Apply Target Allocation + Promote from Hold)
+
+### Where it ends
+
+Multi-ticket redemption verified live. Target Allocation flow verified live. Combined with yesterday's expiry/re-notify chains, the waiting list system now handles four distinct capacity-change scenarios:
+
+| Event | Trigger | Hold model |
+|---|---|---|
+| Public ticket cancelled | Tickets Status → Cancelled | 1-seat hold for WL#1 |
+| Allocation increased | Event.Target Allocation updated | 1-seat hold for WL#1, delta-1 to public |
+| Waitlister abandons 24h window | Hourly sweep flips to Expired | Released, next WL gets fresh hold |
+| Waitlister buys with capacity left over | (no auto-trigger) | Leftover stays public |
+
+The last row remains a known gap — if WL#1 takes fewer than they could have, WL#2 only learns when something else happens. Documented as part of the deferred Pool upgrade path; not blocking.
