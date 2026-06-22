@@ -170,7 +170,7 @@ GOOGLE_WALLET_SERVICE_ACCOUNT_JSON     # Full contents of service-account.json (
 - `Reservations` — reverse-link from Reservations.`Waiting List Entry`
 
 **Related Event-table field (added June 20, 2026):**
-- `Target Allocation` (number) — admin types the new desired total Allocation here. The "Apply Target Allocation" automation atomically holds a seat for the next waitlister, bumps Allocation, and clears this field. See "Target Allocation" below.
+- `Target Allocation` (number) — admin types the new desired total Allocation here. The "Apply Target Allocation" automation atomically holds `ceil(delta / 3)` seats for the next-in-queue waitlisters (capped at actual waitlister count), bumps Allocation, and clears this field. See "Target Allocation" below.
 
 **Related Reservations-table Source option (added June 20, 2026):**
 - `Waiting List Hold` — placeholder Reservations created by the "Apply Target Allocation" script that hold a seat for the next waitlister before the Allocation increase becomes visible. Promoted to `Waiting List` once linked to a Waiting List Entry by the per-row "Promote from Hold" automation.
@@ -182,12 +182,16 @@ GOOGLE_WALLET_SERVICE_ACCOUNT_JSON     # Full contents of service-account.json (
 4. **Webhook completion** — `stripe-ticket-webhook.js` `.completed` handler runs its existing `markReservationsByToken(...Fulfilled)` (works because the cart token matches). If `metadata.waitingListRedemption === 'true'`, it also flips the Waiting List row to `Status=Converted` + sets `Converted Session ID`.
 5. **Hourly expiry sweep** — Scheduled Airtable automation (hourly). Runs `~/Documents/Vercel/airtable-scripts/SV-Ticketing-Base - waiting-list-hourly-expiry-sweep.js`. Walks every `Notified` row, flips any whose `Token Expires At < NOW()` to `Status=Expired`. No emails, no per-row logic — bulk-mark only.
 6. **On-expired re-notify** — Per-record Airtable automation triggered by Waiting List `Status` becoming `Expired`. Runs `~/Documents/Vercel/airtable-scripts/SV-Ticketing-Base - waiting-list-on-expired.js`. Releases the linked Reservation (`Status=Released` → seat back to public pool if nobody else takes it), finds the next eligible `Waiting` row for the same Event, creates a fresh Reservation + token + 24h expiry, marks them `Notified`, and emits the same outputs as the cancellation script so the same email template body can be reused without re-mapping blue pills. Why two automations (sweep + per-row) rather than one: Airtable's Send-email step is one email per automation run, so a burst of N expiries needs to fan out into N independent runs — the cron does the bulk mark; each per-row trigger does its own email.
-7. **Apply Target Allocation** — Per-record Airtable automation triggered by Event `Target Allocation` field being updated. Runs `~/Documents/Vercel/airtable-scripts/SV-Ticketing-Base - waiting-list-apply-target-allocation.js`. Computes `delta = Target - current Allocation`; if positive AND at least one waitlister is queued for the event, creates ONE `Source = Waiting List Hold` Reservation (Q=1) BEFORE bumping `Allocation` to the target (atomicity protects the held seat from public sniping during the brief window). Clears `Target Allocation` afterwards. If no waitlister exists, just bumps Allocation. The single Hold triggers the per-row "Promote from Hold" automation next.
+7. **Apply Target Allocation** — Per-record Airtable automation triggered by Event `Target Allocation` field being updated. Runs `~/Documents/Vercel/airtable-scripts/SV-Ticketing-Base - waiting-list-apply-target-allocation.js`. Computes `delta = Target - current Allocation`; if positive, counts eligible waitlisters and creates `min(waitlisterCount, ceil(delta / 3))` `Source = Waiting List Hold` Reservations (each Q=1) BEFORE bumping `Allocation` to the target (atomicity protects the held seats from public sniping during the brief window). Clears `Target Allocation` afterwards. The `ceil(delta / 3)` math reflects the per-waitlister redemption cap: a single waitlister can claim up to 3 tickets on the page, so each "slot of 3" gets one notified waitlister. If no waitlisters exist, just bumps Allocation. Each Hold separately triggers the per-row "Promote from Hold" automation.
 8. **Promote from Hold** — Per-record Airtable automation triggered by Reservation matching `Source = Waiting List Hold` AND `Status = Active`. Runs `~/Documents/Vercel/airtable-scripts/SV-Ticketing-Base - waiting-list-promote-from-hold.js`. Finds the next eligible `Waiting` row for the linked Event, converts the placeholder Reservation in-place (flips Source to `Waiting List`, sets Reservation Token, links the Waiting List Entry), generates a Redemption Token + 24h expiry on the Waiting List row, marks it Notified, and emits the same outputs as the cancellation script. If no waitlister exists (race condition), flips the placeholder to `Released` so the seat goes to public.
 
 **Multi-ticket redemption (June 20, 2026):** The redemption page (`/ticket-waiting-list?token=...`) now shows a "There is/are N tickets available" message + a +/- quantity selector capped at 3. `availableTickets` is computed in `/api/waiting-list/lookup/[token]` as `min(3, holdQuantity + max(0, Tickets Remaining))` — i.e. their personal hold plus any public capacity, capped at the per-redemption ceiling. `/api/waiting-list/redeem-checkout` accepts a `quantity` POST param, re-validates against live `Tickets Remaining`, updates the Reservation's `Quantity` to the chosen value BEFORE creating Stripe Checkout (atomic seat-hold against public sniping during the 30-min Stripe session), and scales the Stripe line items + `ticketsData` metadata by the chosen quantity. The webhook then creates N Ticket records via the existing `ticketsData` metadata flow used by public buys.
 
-**Notify-only-#1 model (June 20, 2026):** The Apply Target Allocation script deliberately creates ONE Hold regardless of `delta` — only the top-of-queue waitlister is notified per Allocation increase. The remaining `delta - 1` seats go to public. The trade-off: if WL#1 only claims part of what they could (e.g. 1 of 3 available), the unclaimed seats go to public rather than cascading down the queue. The alternative — a full "Pool" pattern with cascading promotion until queue empty — was scoped (single `Source = "Waiting List Pool"` Reservation with `Q = delta`, with restoration logic in `on-expired` and `redeem-checkout`) but deferred. For typical 3-4-per-event-life Allocation changes with small deltas, the leftover-to-public outcome is acceptable. Upgrading later is a script-only change — no schema migration. See doc comment in `waiting-list-apply-target-allocation.js`.
+**ceil(delta / 3) model (June 22, 2026 — supersedes June 20's notify-only-#1):** The Apply Target Allocation script creates `min(waitlisterCount, ceil(delta / MAX_TICKETS_PER_REDEMPTION))` Holds — one per "slot of 3 tickets" the increase represents, capped at the actual waitlister count. Examples: delta=5 → 2 Holds (WL#1 + WL#2 each get an email); delta=7 → 3 Holds (WL#1 + WL#2 + WL#3); delta=10 with only 2 in queue → 2 Holds (no phantom holds for non-existent people). Each Hold fires the Promote from Hold automation independently → one email per waitlister, atomic per-row. Reasoning: the redemption page caps each waitlister at 3 tickets, so one waitlister can productively absorb at most 3 of the new seats; deltas larger than that warrant notifying the next person in queue at the same time.
+
+The earlier "notify-only-#1" model (June 20) created exactly one Hold regardless of delta size — picked for simplicity and to avoid waitlister-vs-waitlister races. Switched to ceil(delta/3) on June 22 after Curtis confirmed: "those changes are often 5+ tickets, and within quick succession." The earlier rationale (avoid races) still applies but is acceptable: if WL#1 takes their full 3-cap before WL#2 visits, WL#2's page recomputes live and shows fewer than 3 available — not broken, just less consistent UX. The `redeem-checkout` endpoint re-validates capacity at request time so no oversell is possible.
+
+The full "Pool" cascade (single `Source = "Waiting List Pool"` Reservation with `Q = delta`, with restoration logic in `on-expired` and `redeem-checkout`, plus a new "After Convert" automation) is still on the deferred list. It would hold ALL delta seats for waitlist until queue empty. Worth it if Allocation deltas regularly exceed `MAX_TICKETS_PER_REDEMPTION × waitlisterCount` AND under-claims happen often enough that capacity leaks to public. Upgrade path is documented in the script's doc comment.
 
 **Phase 2C hardening — Airtable BOM defenses + cosmetic stripping (June 19, 2026):**
 
@@ -206,7 +210,7 @@ Each waitlister can now claim **up to 3 tickets** at the redemption page (see "M
 Open future work (not yet built):
 - Track cumulative cancelled-but-not-yet-redeemed tickets per event so multiple cancellations within a 24h window can be offered atomically to one waitlister
 - Allow waitlisters to specify desired quantity at join time (currently always 1; the redemption page lets them up to 3 regardless)
-- Full "Pool" cascade for Allocation increases (currently leftover beyond what WL#1 claims goes to public; see "Notify-only-#1 model" note above)
+- Full "Pool" cascade for Allocation increases (currently leftover beyond what the `ceil(delta / 3)` notified waitlisters can absorb goes to public; see "ceil(delta / 3) model" note above)
 
 ### Send Tickets Table
 - `Stripe Session ID` — Groups tickets for email automation
@@ -842,3 +846,52 @@ Multi-ticket redemption verified live. Target Allocation flow verified live. Com
 | Waitlister buys with capacity left over | (no auto-trigger) | Leftover stays public |
 
 The last row remains a known gap — if WL#1 takes fewer than they could have, WL#2 only learns when something else happens. Documented as part of the deferred Pool upgrade path; not blocking.
+
+---
+
+## Session Log: June 22, 2026
+
+### Apply Target Allocation — switched from notify-only-#1 to ceil(delta / 3) holds
+
+A two-day-old design decision walked back. June 20's "notify-only-#1" model created exactly one Hold per Allocation increase, regardless of `delta` size. After two days of testing Curtis flagged that real-world Allocation amendments are often `delta ≥ 5` and come in quick succession (3-4 times per event life, but typically all in the same week leading up to onsale). One-at-a-time meant admin would have to manually retype `Target Allocation` multiple times to cascade through the queue — which defeats the convenience of the single-field workflow.
+
+### The new model
+
+`waiting-list-apply-target-allocation.js` now creates:
+
+```js
+const holdsToCreate = Math.min(
+    waitlisterCount,
+    Math.ceil(delta / MAX_TICKETS_PER_REDEMPTION)
+);
+```
+
+Where `MAX_TICKETS_PER_REDEMPTION = 3` matches the per-waitlister cap on the redemption page. Reasoning: one waitlister can productively absorb at most 3 of the new seats (their hold + public TR, capped at 3), so each "slot of 3" gets its own notification.
+
+| Delta | Holds | Waitlisters notified |
+|---|---|---|
+| 1 | 1 | WL#1 |
+| 3 | 1 | WL#1 |
+| 4 | 2 | WL#1 + WL#2 |
+| 5 | 2 | WL#1 + WL#2 |
+| 7 | 3 | WL#1 + WL#2 + WL#3 |
+| 10 (with 2 in queue) | 2 | WL#1 + WL#2 |
+
+The `Math.min(waitlisterCount, ...)` cap prevents creating Hold placeholders for non-existent waitlisters (they'd just immediately Release themselves in the Promote from Hold script — wasteful but not broken; the cap is just tidier).
+
+### Trade-off accepted
+
+The June 20 rationale for notify-only-#1 was "avoid waitlister-vs-waitlister races on the same seat pool." That risk is real but acceptable: if WL#1 takes all 3 of their cap (drawing 1 from their hold + 2 from public TR) before WL#2 visits, WL#2's page recomputes against live `Tickets Remaining` and shows "There is 1 / are 2 tickets available." Not broken — just less consistent UX. `redeem-checkout.js` re-validates capacity at the moment of Proceed so no oversell is possible.
+
+### Files Modified
+
+- `~/Documents/Vercel/airtable-scripts/SV-Ticketing-Base - waiting-list-apply-target-allocation.js` — `holdsToCreate` math swap + doc-comment rewrite explaining the trade-off and pointing to the deferred Pool upgrade path
+- `CLAUDE.md` — updated step 7 description, replaced "Notify-only-#1 model" subsection with "ceil(delta / 3) model" subsection (preserves the prior history + rationale for the switch)
+
+### Deploy
+
+Airtable automation script swap — no Vercel push needed. User re-pastes the updated script into the "Apply Target Allocation" automation's Run-script step, then `Target Allocation = current + 5` on a low-stakes event with 2+ waitlisters → should see 2 Hold rows appear + 2 emails fire.
+
+### Note on the explainer copy for the team interface
+
+While here, also helped Curtis draft team-facing copy for the Airtable interface explainer on the `Target Allocation` field. Lands on framing as "move tickets between ticket types" (reduce Allocation on the source ticket type → add the same number to Target Allocation on the destination type) — clearer than "amend allocation" since the team always thinks of it as redistribution, not bare increases.
