@@ -1094,15 +1094,24 @@ function buildWaitingListUI(event, controlDiv, ticketTypesList) {
     const form = document.createElement('div');
     form.className = 'waitlist-form-wrapper';
     form.id = 'waitlist-form-' + event.id;
+    // NOTE: deliberately NO `required` attributes on these inputs.
+    // This form lives inside the main #ticket-form (alongside the main
+    // checkout fields). When a buyer adds tickets to an AVAILABLE row and
+    // clicks "Proceed to payment", the browser's HTML5 validation walks
+    // EVERY field in the form — including the hidden waitlist fields. It
+    // then refuses to submit and logs "The invalid form control with
+    // name='wl-firstName' is not focusable" (the inputs are inside a
+    // display:none parent). Validation for the waitlist form itself
+    // happens in submitWaitingList() with explicit JS checks.
     form.innerHTML =
         '<div style="font-weight:bold;margin-bottom:10px;">' +
             'Join the waiting list for <em>' + (event.ticketTypePrice || event.ticketType || 'this ticket') + '</em>' +
         '</div>' +
         '<div class="waitlist-form-row">' +
-            '<label>First name<input type="text" name="wl-firstName" required></label>' +
-            '<label>Surname<input type="text" name="wl-surname" required></label>' +
+            '<label>First name<input type="text" name="wl-firstName"></label>' +
+            '<label>Surname<input type="text" name="wl-surname"></label>' +
         '</div>' +
-        '<label>Email<input type="email" name="wl-email" required></label>' +
+        '<label>Email<input type="email" name="wl-email"></label>' +
         '<label>Phone (optional)<input type="tel" name="wl-phone" placeholder="+44 7xxx xxx xxx"></label>' +
         '<input type="hidden" name="wl-qty" value="1">' +
         '<p style="font-size:12px;color:#666;margin:6px 0 14px;">We currently offer 1 ticket per waiting-list entry. If you need more than 1, please join the list with each attendee\'s email separately.</p>' +
