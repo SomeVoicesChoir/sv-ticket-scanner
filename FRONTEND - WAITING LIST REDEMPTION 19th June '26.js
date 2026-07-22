@@ -241,6 +241,98 @@
     text-align: center;
     font-size: 14px;
   }
+  #wl-redeem-wrap .wl-decline {
+    margin-top: 28px;
+    padding-top: 22px;
+    border-top: 1px solid #ececec;
+    text-align: center;
+  }
+  #wl-redeem-wrap .wl-decline-btn {
+    background: none;
+    border: none;
+    color: #777;
+    font-size: 14px;
+    font-family: inherit;
+    text-decoration: underline;
+    cursor: pointer;
+    padding: 6px 10px;
+  }
+  #wl-redeem-wrap .wl-decline-btn:hover { color: #b13020; }
+  #wl-redeem-wrap .wl-decline-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  #wl-redeem-wrap .wl-decline-error {
+    margin-top: 10px;
+    color: #b13020;
+    font-size: 14px;
+  }
+  #wl-redeem-wrap .wl-declined {
+    text-align: center;
+    padding: 20px 0;
+  }
+  #wl-redeem-wrap .wl-declined .wl-declined-title {
+    font-size: 22px;
+    font-weight: 600;
+    margin: 0 0 12px 0;
+    line-height: 1.3;
+  }
+  #wl-redeem-wrap .wl-declined .wl-declined-body {
+    font-size: 16px;
+    color: #444;
+    line-height: 1.55;
+    margin: 0;
+  }
+  #wl-redeem-wrap .wl-dc-title {
+    font-size: 22px;
+    font-weight: 600;
+    margin: 0 0 8px 0;
+    line-height: 1.3;
+  }
+  #wl-redeem-wrap .wl-dc-body {
+    font-size: 16px;
+    color: #444;
+    line-height: 1.55;
+    margin: 0 0 24px 0;
+  }
+  #wl-redeem-wrap .wl-dc-event {
+    font-weight: 700;
+    color: #1a1a1a;
+  }
+  #wl-redeem-wrap .wl-confirm-yes {
+    display: block;
+    width: 100%;
+    padding: 18px 28px;
+    background: #ea3e28;
+    color: #fff !important;
+    border: none;
+    border-radius: 8px;
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  #wl-redeem-wrap .wl-confirm-yes:hover { background: #d5361f; }
+  #wl-redeem-wrap .wl-confirm-yes:disabled { opacity: 0.5; cursor: not-allowed; }
+  #wl-redeem-wrap .wl-confirm-no {
+    display: block;
+    width: 100%;
+    padding: 14px 28px;
+    margin-top: 12px;
+    background: none;
+    color: #1a1a1a;
+    border: 1px solid #d8d8d8;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  #wl-redeem-wrap .wl-confirm-no:hover { background: #faf6ee; }
+  #wl-redeem-wrap .wl-dc-error {
+    margin-top: 12px;
+    color: #b13020;
+    text-align: center;
+    font-size: 14px;
+  }
 </style>
 
 <div id="wl-redeem-wrap">
@@ -309,6 +401,24 @@
       <button type="button" class="wl-submit" id="wl-submit">Proceed to payment</button>
       <div id="wl-form-error" class="wl-form-error" style="display:none;"></div>
     </form>
+
+    <div class="wl-decline">
+      <button type="button" class="wl-decline-btn" id="wl-decline-btn">I no longer want this ticket</button>
+      <div id="wl-decline-error" class="wl-decline-error" style="display:none;"></div>
+    </div>
+  </div>
+
+  <div id="wl-state-decline-confirm" style="display:none;">
+    <p class="wl-dc-title">Release your ticket?</p>
+    <p class="wl-dc-body">You're about to give up your held ticket for <span class="wl-dc-event" id="wl-dc-event"></span>. It will be offered to the next person on the waiting list. This can't be undone.</p>
+    <button type="button" class="wl-confirm-yes" id="wl-dc-yes">Yes, release my ticket</button>
+    <button type="button" class="wl-confirm-no" id="wl-dc-no">No, I'll claim it</button>
+    <div id="wl-dc-error" class="wl-dc-error" style="display:none;"></div>
+  </div>
+
+  <div id="wl-state-declined" style="display:none;" class="wl-declined">
+    <p class="wl-declined-title">Thanks for letting us know.</p>
+    <p class="wl-declined-body">We've released your ticket and it will be offered to the next person on the waiting list. There's nothing more you need to do.</p>
   </div>
 </div>
 
@@ -378,6 +488,12 @@
     return;
   }
 
+  // ?action=decline (from the "no longer want it" link in the email) routes
+  // to a confirmation screen after the token validates, instead of the claim
+  // form. A confirmation step (not an auto-decline on load) guards against
+  // accidental taps and email link-prefetchers.
+  const wantsDecline = (new URLSearchParams(window.location.search).get('action') || '').toLowerCase() === 'decline';
+
   // Step 1 — validate the token + fetch event/customer details
   fetch(API_BASE + '/waiting-list/lookup/' + encodeURIComponent(token))
     .then(r => r.json().then(body => ({ status: r.status, body })))
@@ -435,7 +551,13 @@
       setVal('wl-ph', body.customer.phone);
 
       $loading.style.display = 'none';
-      $ready.style.display = 'block';
+      if (wantsDecline) {
+        // Route straight to the decline confirmation screen (event name filled).
+        document.getElementById('wl-dc-event').textContent = cleanEventName;
+        document.getElementById('wl-state-decline-confirm').style.display = 'block';
+      } else {
+        $ready.style.display = 'block';
+      }
     })
     .catch(err => {
       console.error('Lookup error:', err);
@@ -449,6 +571,79 @@
   });
   document.getElementById('wl-qty-plus').addEventListener('click', function() {
     if (quantity < maxAvailable) { quantity++; renderQty(); }
+  });
+
+  // Shared decline call — POSTs the token, throws on failure. Used by both the
+  // inline "I no longer want this ticket" link and the email decline-confirm
+  // screen.
+  async function submitDecline() {
+    const resp = await fetch(API_BASE + '/waiting-list/decline', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: token })
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data.ok) {
+      throw new Error(data.error || 'Could not release your ticket.');
+    }
+  }
+
+  // Swap the whole card over to the "released" confirmation state.
+  function showDeclined() {
+    $ready.style.display = 'none';
+    document.getElementById('wl-state-decline-confirm').style.display = 'none';
+    document.getElementById('wl-state-declined').style.display = 'block';
+  }
+
+  // Inline decline link (on the claim form).
+  document.getElementById('wl-decline-btn').addEventListener('click', async function() {
+    const $btn = document.getElementById('wl-decline-btn');
+    const $err = document.getElementById('wl-decline-error');
+    $err.style.display = 'none';
+
+    const ok = window.confirm(
+      "Release this ticket to the next person on the waiting list?\n\n" +
+      "This can't be undone — if you change your mind you'd need to rejoin the waiting list."
+    );
+    if (!ok) return;
+
+    $btn.disabled = true;
+    $btn.textContent = 'Releasing…';
+
+    try {
+      await submitDecline();
+      showDeclined();
+    } catch (err) {
+      $err.textContent = err.message || 'Something went wrong. Please try again.';
+      $err.style.display = 'block';
+      $btn.disabled = false;
+      $btn.textContent = 'I no longer want this ticket';
+    }
+  });
+
+  // Email decline-confirm screen (reached via ?action=decline).
+  document.getElementById('wl-dc-yes').addEventListener('click', async function() {
+    const $yes = document.getElementById('wl-dc-yes');
+    const $err = document.getElementById('wl-dc-error');
+    $err.style.display = 'none';
+    $yes.disabled = true;
+    $yes.textContent = 'Releasing…';
+
+    try {
+      await submitDecline();
+      showDeclined();
+    } catch (err) {
+      $err.textContent = err.message || 'Something went wrong. Please try again.';
+      $err.style.display = 'block';
+      $yes.disabled = false;
+      $yes.textContent = 'Yes, release my ticket';
+    }
+  });
+
+  // "No, I'll claim it" — drop back to the normal claim card (already populated).
+  document.getElementById('wl-dc-no').addEventListener('click', function() {
+    document.getElementById('wl-state-decline-confirm').style.display = 'none';
+    $ready.style.display = 'block';
   });
 
   // Step 2 — submit handler
