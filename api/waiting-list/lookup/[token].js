@@ -99,21 +99,33 @@ module.exports = async function handler(req, res) {
         // The waitlister's existing hold is ALREADY counted in `Tickets Remaining`
         // via the Reserved rollup, so we add their hold quantity back to compute
         // their true claim ceiling.
+        // Take the ACTIVE hold, NOT `reservationLinks[0]` — a row notified more
+        // than once accumulates Reservations (the earlier ones Released by the
+        // on-expired cascade) and the newest is APPENDED, so [0] is the dead one.
+        // Reading it set holdQuantity = 0, and on a sold-out event — where the
+        // only free seat IS their own hold — availableTickets came out 0 and the
+        // page showed the "No tickets are available for this event right now"
+        // box with the claim form hidden. Hit five of eight live invitations on
+        // the free Grand Sing row, Oct 12 2026: redeem-checkout was fixed for
+        // this the same morning and THIS read path was missed, so the page
+        // refused a claim the endpoint behind it would have honoured.
         const reservationLinks = wlRow.fields['Reservations'] || [];
         let holdQuantity = 1;
         if (reservationLinks.length > 0) {
-            const resvUrl = `https://api.airtable.com/v0/${CONFIG.baseId}/${encodeURIComponent(RESERVATIONS_TABLE)}/${reservationLinks[0]}`;
-            const resvResp = await fetch(resvUrl, { headers: { 'Authorization': `Bearer ${CONFIG.apiKey}` } });
-            if (resvResp.ok) {
-                const resv = await resvResp.json();
-                // Only count an Active hold — if it's been Released (e.g. user
-                // abandoned a previous checkout) treat as zero.
-                if (resv.fields['Status'] === 'Active') {
-                    holdQuantity = Number(resv.fields['Quantity']) || 1;
-                } else {
-                    holdQuantity = 0;
-                }
-            }
+            const linked = await Promise.all(
+                reservationLinks.slice(0, 10).map(async (id) => {
+                    const r = await fetch(
+                        `https://api.airtable.com/v0/${CONFIG.baseId}/${encodeURIComponent(RESERVATIONS_TABLE)}/${id}`,
+                        { headers: { 'Authorization': `Bearer ${CONFIG.apiKey}` } }
+                    );
+                    return r.ok ? await r.json() : null;
+                })
+            );
+            const readable = linked.filter(Boolean);
+            // Only an Active hold counts — a Released one (abandoned checkout,
+            // lapsed invitation) is worth zero seats, same as before.
+            const active = readable.find(r => r.fields['Status'] === 'Active');
+            holdQuantity = active ? (Number(active.fields['Quantity']) || 1) : 0;
         }
 
         const ticketsRemaining = Number(event.fields['Tickets Remaining'] || 0);
