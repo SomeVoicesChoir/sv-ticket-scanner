@@ -105,13 +105,33 @@ module.exports = async function handler(req, res) {
         if (reservationLinks.length === 0) {
             return res.status(500).json({ error: 'No reservation held for this invitation. Please contact support.' });
         }
-        const reservationId = reservationLinks[0];
+        // Take the ACTIVE hold, not `reservationLinks[0]`. A row notified more
+        // than once accumulates Reservations — the earlier ones Released by the
+        // on-expired cascade — and the newest is APPENDED, so [0] is the dead
+        // one. Picking it reads `currentHoldQty` as 0, and on a sold-out event
+        // (where the only free seat IS their hold) the capacity check then
+        // refuses with "No tickets are available for this event right now". Three
+        // of the 13 rows on the free Grand Sing row already carry two links.
+        // Falls back to the most recent link, not the first. Oct 12 2026.
+        const linkedReservations = await Promise.all(
+            reservationLinks.slice(0, 10).map(async (id) => {
+                const r = await fetch(
+                    `https://api.airtable.com/v0/${CONFIG.baseId}/${encodeURIComponent(RESERVATIONS_TABLE)}/${id}`,
+                    { headers: { 'Authorization': `Bearer ${CONFIG.apiKey}` } }
+                );
+                return r.ok ? await r.json() : null;
+            })
+        );
+        const readable = linkedReservations.filter(Boolean);
+        if (readable.length === 0) return res.status(500).json({ error: 'Could not find your held reservation' });
+
+        const reservation = readable.find(r => r.fields['Status'] === 'Active') || readable[readable.length - 1];
+        const reservationId = reservation.id;
+        if (readable.length > 1) {
+            console.log(`Waiting list ${wlRow.id} has ${readable.length} linked reservation(s) — using ${reservationId} (${reservation.fields['Status']})`);
+        }
 
         const resvUrl = `https://api.airtable.com/v0/${CONFIG.baseId}/${encodeURIComponent(RESERVATIONS_TABLE)}/${reservationId}`;
-        const resvResp = await fetch(resvUrl, { headers: { 'Authorization': `Bearer ${CONFIG.apiKey}` } });
-        if (!resvResp.ok) return res.status(500).json({ error: 'Could not find your held reservation' });
-
-        const reservation = await resvResp.json();
         const reservationToken = reservation.fields['Reservation Token'];
         if (!reservationToken) {
             return res.status(500).json({ error: 'Reservation is missing its token. Please contact support.' });
