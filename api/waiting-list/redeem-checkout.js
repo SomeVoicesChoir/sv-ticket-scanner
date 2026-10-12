@@ -133,7 +133,18 @@ module.exports = async function handler(req, res) {
         const ticketTypePrice = fv(event.fields['Ticket Type + Price']) || fv(event.fields['Ticket Type']) || 'Ticket';
         const dateTime = fv(event.fields['Date + Time Friendly']) || fv(event.fields['Date Friendly']);
         const venueAddress = fv(event.fields['Venue Address']);
-        const currency = (event.fields['Currency'] || 'GBP').toLowerCase();
+        // ⚠️ The Event table has NO {Currency} field. The real one is Stripe's
+        // own `default_price_data[currency]` single-select (gbp/eur/usd) — which
+        // is what get-events.js reads for the public selectors. This line used to
+        // read `event.fields['Currency']`, always undefined, so EVERY claim fell
+        // back to GBP: a EUR event's waiting-list claim was charged in POUNDS at
+        // the euro number. 11 EUR event rows exist, 6 of them priced, incl. Glow
+        // Amsterdam (€10/€15, Dec 2026). Found Oct 12 2026 while fixing the free
+        // path. The `Currency` fallback stays only in case such a field is ever
+        // added; it is NOT the authority.
+        const currency = String(
+            event.fields["Stripe 'default_price_data[currency]'"] || event.fields['Currency'] || 'GBP'
+        ).toLowerCase();
         const price = Number(event.fields['Ticket Price'] || 0);
         const bookingFee = Number(event.fields['Booking Fee'] || 0);
         const stripePriceId = event.fields['Stripe Price ID'] || '';

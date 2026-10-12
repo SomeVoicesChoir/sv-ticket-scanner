@@ -135,7 +135,11 @@ module.exports = async function handler(req, res) {
                 bookingFee: event.fields['Booking Fee'] || 0,
                 dateTime: fv(event.fields['Date + Time Friendly']) || fv(event.fields['Date Friendly']),
                 venueAddress: fv(event.fields['Venue Address']),
-                currency: event.fields['Currency'] || 'GBP'
+                // Stripe's own `default_price_data[currency]` is the real field —
+                // there is no {Currency} on Event, so this used to always say GBP
+                // and a EUR event's claim page priced itself with a £ sign.
+                // See the note in redeem-checkout.js. Oct 12 2026.
+                currency: event.fields["Stripe 'default_price_data[currency]'"] || event.fields['Currency'] || 'GBP'
             },
             customer: {
                 firstName: wlRow.fields['First Name'] || '',
