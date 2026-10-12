@@ -154,7 +154,7 @@ module.exports = async function handler(req, res) {
             console.log('Free ticket detected — bypassing Stripe');
 
             const freeSessionId = `free_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
-            const firstTicket = selectedTickets[0];
+            const firstTicket = selectedTickets[0]; // link-index-ok: client cart, not a linked-record array; only supplies the currency label
 
             // Create Send Tickets record (same as webhook does)
             await createAirtableRecord(CONFIG.sendTicketsTableId, {
@@ -275,7 +275,7 @@ module.exports = async function handler(req, res) {
         }
 
         // Get first ticket for shared metadata
-        const firstTicket = selectedTickets[0];
+        const firstTicket = selectedTickets[0]; // link-index-ok: client cart, not a linked-record array; only feeds shared Stripe metadata
 
         // Build event names list for thank you message
         const eventNamesList = [...new Set(selectedTickets.map(t => t.eventName))].join(', ');

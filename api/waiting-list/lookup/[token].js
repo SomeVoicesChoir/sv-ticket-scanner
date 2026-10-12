@@ -82,7 +82,7 @@ module.exports = async function handler(req, res) {
         if (eventLinks.length === 0) {
             return res.status(500).json({ error: 'No event linked to this invitation.' });
         }
-        const eventId = eventLinks[0];
+        const eventId = eventLinks[0]; // link-index-ok: a Waiting List row links exactly one Event (0 of 347 have more)
 
         const eventUrl = `https://api.airtable.com/v0/${CONFIG.baseId}/${CONFIG.eventTableId}/${eventId}`;
         const eventResp = await fetch(eventUrl, {

@@ -44,6 +44,7 @@ Vercel-deployed ticketing system for Some Voices choir events. Handles ticket pu
 ### Scripts (local-only, not deployed)
 
 - `scripts/setup-google-pass-class.js` — one-time idempotent script that creates the Google Wallet Pass Class via the Wallet REST API. Run with the service account JSON file path as argument. Re-running prints "already exists".
+- `scripts/check-airtable-fields.js` — **`npm run check:fields`**. Validates every Airtable field name this code uses against the LIVE base schema: `fields['X']` reads, `getCellValue('X')` in the Airtable scripts, write-payload keys, `{Field}` references inside `filterByFormula` strings, and `fields[]` projections. Exits 1 on a name that doesn't exist. Also flags **positional reads of a linked-record array** (`…links[0]`) as warnings — annotate a line with `link-index-ok` once you've checked the array really is single-valued. Written after two silent Oct 12 2026 bugs: `{Currency}` (a field that never existed, so every waiting-list claim fell back to GBP) and `reservationLinks[0]` (the dead Released hold on a re-notified row). Needs `AIRTABLE_API_KEY` in the environment or a `.env.local` in the repo root. ⚠️ **It cannot see Airtable VIEW filters or the scripts attached to AUTOMATIONS** — both are invisible to every API and can only be established by running them and watching.
 
 ### Frontend Files (Copy-paste into Squarespace)
 - `FRONTEND - PUBLIC Event Selector 9th Feb '26.js` — Public ticket purchasing

@@ -9,5 +9,8 @@
     "node-fetch": "^2.7.0",
     "passkit-generator": "^3.5.7",
     "stripe": "^14.0.0"
+  },
+  "scripts": {
+    "check:fields": "node scripts/check-airtable-fields.js"
   }
 }
