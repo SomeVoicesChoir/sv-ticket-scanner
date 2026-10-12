@@ -146,12 +146,16 @@ module.exports = async function handler(req, res) {
                 price: event.fields['Ticket Price'] || 0,
                 bookingFee: event.fields['Booking Fee'] || 0,
                 dateTime: fv(event.fields['Date + Time Friendly']) || fv(event.fields['Date Friendly']),
-                venueAddress: fv(event.fields['Venue Address']),
+                // Event calls it {Venue Address Text} (lookup from {Event Venue});
+                // {Venue Address} is a Tickets field, so this was undefined on
+                // every invitation and the page rendered no venue line at all.
+                venueAddress: fv(event.fields['Venue Address Text'])
+                    || fv(event.fields['Venue Address (with Google Map link) (from Event Venue)']),
                 // Stripe's own `default_price_data[currency]` is the real field —
                 // there is no {Currency} on Event, so this used to always say GBP
                 // and a EUR event's claim page priced itself with a £ sign.
                 // See the note in redeem-checkout.js. Oct 12 2026.
-                currency: event.fields["Stripe 'default_price_data[currency]'"] || event.fields['Currency'] || 'GBP'
+                currency: event.fields["Stripe 'default_price_data[currency]'"] || event.fields['Currency'] || 'GBP' // field-table-ok: deliberate fallback if such a field is ever added to Event
             },
             customer: {
                 firstName: wlRow.fields['First Name'] || '',

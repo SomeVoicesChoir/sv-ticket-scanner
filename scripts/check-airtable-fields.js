@@ -59,6 +59,21 @@ const READ_PATTERNS = [
     /^\s*(['"])([A-Z][^'"]{2,60})\1\s*:/gm,                        // write payload keys
 ];
 
+// Which table a receiver variable holds, so `event.fields['X']` is checked
+// against Event ALONE and not against every table in the base. Without this
+// the check is only a union test, and a union test passes a name that exists
+// somewhere else — which is how `event.fields['Venue Address']` survived its
+// first run on 12 Oct 2026: Venue Address is real on Tickets, but Event calls
+// it {Venue Address Text}, so the claim page silently showed no venue line.
+// An unlisted receiver still gets the union check.
+const RECEIVER_TABLE = {
+    event: 'Event',
+    wlRow: 'Waiting List',
+    reservation: 'Reservations',
+    resv: 'Reservations',
+    ticket: 'Tickets',
+};
+
 function resolveKey() {
     if (process.env.AIRTABLE_API_KEY) return process.env.AIRTABLE_API_KEY;
     const envFile = path.join(REPO, '.env.local');
@@ -106,7 +121,9 @@ const isLive = (file) =>
     const meta = await resp.json();
 
     const tablesByField = new Map();
+    const tableFields = new Map();
     for (const t of meta.tables) {
+        tableFields.set(t.name, new Set(t.fields.map(f => f.name)));
         for (const f of t.fields) {
             if (!tablesByField.has(f.name)) tablesByField.set(f.name, []);
             tablesByField.get(f.name).push(t.name);
@@ -117,6 +134,7 @@ const isLive = (file) =>
     const rel = f => path.relative(path.resolve(REPO, '..'), f);
 
     const unknownFields = [];
+    const wrongTable = [];
     const unknownFormulaRefs = [];
     const positional = [];
     let projectionsChecked = 0;
@@ -137,6 +155,29 @@ const isLive = (file) =>
                 const line = lineAt(m.index);
                 unknownFields.push({ file, line, name, text: (lines[line - 1] || '').trim() });
             }
+        }
+
+        // Receiver-aware pass: a name that exists in the base but NOT on the
+        // table the variable actually holds.
+        // NB the backreference is \2 (the opening quote). Writing \3 here makes
+        // JS match an empty string and the whole pattern silently never fires —
+        // which is exactly how the first version of this pass reported "clean".
+        const receiverRead = /(\w+)\.fields\[\s*(['"])([^'"]{2,60})\2\s*\]/g;
+        let rm;
+        while ((rm = receiverRead.exec(src))) {
+            const table = RECEIVER_TABLE[rm[1]];
+            const name = rm[3];
+            if (!table || NOT_FIELDS.has(name)) continue;
+            const onTable = (tableFields.get(table) || new Set()).has(name);
+            if (onTable) continue;
+            const line = lineAt(rm.index);
+            const text = (lines[line - 1] || '').trim();
+            if (text.includes('field-table-ok')) continue;
+            const elsewhere = tablesByField.get(name);
+            wrongTable.push({
+                file, line, name, table, text,
+                elsewhere: elsewhere ? elsewhere.join(', ') : null,
+            });
         }
 
         // {Field} references inside filterByFormula strings. An unknown name
@@ -178,6 +219,10 @@ const isLive = (file) =>
         console.log('FIELD NAMES THAT DO NOT EXIST IN THE BASE:');
         for (const u of unknownFields) console.log(`  ${rel(u.file)}:${u.line}  {${u.name}}\n    ${u.text}`);
     }
+    if (wrongTable.length) {
+        console.log('\nFIELDS READ OFF THE WRONG TABLE (the name exists, but not there — reads as undefined, never errors):');
+        for (const w of wrongTable) console.log(`  ${rel(w.file)}:${w.line}  {${w.name}} is not on ${w.table}${w.elsewhere ? ' — it exists on: ' + w.elsewhere : ''}\n    ${w.text}`);
+    }
     if (unknownFormulaRefs.length) {
         console.log('\nFORMULA REFERENCES THAT DO NOT EXIST (422s the whole query):');
         for (const u of unknownFormulaRefs) console.log(`  ${rel(u.file)}:${u.line}  {${u.name}}\n    ${u.text}`);
@@ -187,8 +232,8 @@ const isLive = (file) =>
         for (const p of positional) console.log(`  ${rel(p.file)}:${p.line}\n    ${p.text}`);
     }
 
-    const failures = unknownFields.length + unknownFormulaRefs.length;
-    if (failures === 0 && positional.length === 0) console.log('All field names exist; no unreviewed positional link reads.');
+    const failures = unknownFields.length + unknownFormulaRefs.length + wrongTable.length;
+    if (failures === 0 && positional.length === 0) console.log('All field names exist on the tables they are read from; no unreviewed positional link reads.');
     process.exit(failures > 0 ? 1 : 0);
 })().catch(err => {
     console.error('check-airtable-fields failed:', err.message);
