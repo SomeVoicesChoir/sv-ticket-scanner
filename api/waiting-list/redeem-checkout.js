@@ -10,6 +10,10 @@
 //
 // Also adds waitingListRedemption + waitingListId to Stripe metadata so the
 // webhook can mark the Waiting List row as Converted in the same step.
+//
+// FREE events (member tickets at £0) have no Stripe session at all — see the
+// FREE TICKET PATH below, which writes the tickets itself and does inline
+// what the webhook would otherwise have done.
 
 const stripe = require('stripe')(process.env.STRIPE_TICKET_SECRET_KEY);
 const fetch = require('node-fetch');
@@ -17,6 +21,8 @@ const fetch = require('node-fetch');
 const CONFIG = {
     baseId: process.env.AIRTABLE_BASE_ID,
     eventTableId: process.env.AIRTABLE_EVENT_TABLE_ID,
+    ticketsTableId: process.env.AIRTABLE_TABLE_ID,
+    sendTicketsTableId: process.env.AIRTABLE_SEND_TICKETS_TABLE_ID,
     apiKey: process.env.AIRTABLE_API_KEY
 };
 
@@ -133,8 +139,15 @@ module.exports = async function handler(req, res) {
         const stripePriceId = event.fields['Stripe Price ID'] || '';
         const ticketsRemaining = Number(event.fields['Tickets Remaining'] || 0);
 
-        if (price <= 0) {
-            return res.status(500).json({ error: 'Event has no price set. Please contact support.' });
+        // £0 is a legitimate price — member tickets are often free, and the
+        // public/member selectors have bypassed Stripe for them since launch
+        // (create-ticket-checkout.js's FREE TICKET PATH). This endpoint used to
+        // refuse a zero price outright, so EVERY free-event claim died with
+        // "Event has no price set" and the invitation lapsed 24h later
+        // (12 of 12 notified waitlisters on the free Grand Sing London row,
+        // Oct 2026). Only nonsense pricing is an error now.
+        if (!Number.isFinite(price) || price < 0 || !Number.isFinite(bookingFee) || bookingFee < 0) {
+            return res.status(500).json({ error: 'Event pricing is not set up correctly. Please contact support.' });
         }
 
         // ── Capacity check ───────────────────────────────────────────
@@ -167,6 +180,98 @@ module.exports = async function handler(req, res) {
             if (!qtyPatchResp.ok) {
                 return res.status(500).json({ error: 'Could not hold the requested number of tickets. Please try again.' });
             }
+        }
+
+        // ── FREE TICKET PATH: no Stripe session at all ────────────────
+        // Stripe Checkout cannot take a £0 payment, so there is nothing to
+        // redirect to. We write the tickets here and do inline the three things
+        // the webhook would have done on `checkout.session.completed`: create
+        // the Send Tickets row (which triggers the PDF + email automation),
+        // flip the held Reservation to Fulfilled, and mark the Waiting List row
+        // Converted. Mirrors create-ticket-checkout.js's free path.
+        //
+        // The session id is DERIVED from the Waiting List row rather than
+        // random, so a double-tap or a retry after a timeout finds the tickets
+        // it already created instead of issuing a second set. `free_...` is the
+        // shape tickets-by-session/[sessionId].js already accepts.
+        if (price + bookingFee === 0) {
+            const freeSessionId = `free_wl_${wlRow.id}`;
+            console.log(`Free event — bypassing Stripe for waiting list ${wlRow.id} (session ${freeSessionId})`);
+
+            const existingTickets = await findBySessionId(CONFIG.ticketsTableId, freeSessionId);
+            if (existingTickets.length > 0) {
+                console.log(`Tickets already exist for ${freeSessionId} — duplicate submit, skipping creation`);
+            } else {
+                // Send Tickets FIRST (same order as the webhook), and only if a
+                // prior partial run didn't already make one — re-creating it
+                // would re-fire the customer email.
+                const existingSend = await findBySessionId(CONFIG.sendTicketsTableId, freeSessionId);
+                if (existingSend.length === 0) {
+                    await createAirtableRecord(CONFIG.sendTicketsTableId, { 'Stripe Session ID': freeSessionId });
+                }
+
+                const ticketWrites = [];
+                for (let n = 1; n <= quantity; n++) {
+                    ticketWrites.push(createAirtableRecord(CONFIG.ticketsTableId, {
+                        'Event Name': [eventId],
+                        'First Name': firstName,
+                        'Surname': surname,
+                        'Email': email,
+                        'Mobile Phone Number': phone,
+                        'Post Code': postcode,
+                        'Stripe Session ID': freeSessionId,
+                        'Amount Paid': 0,
+                        'Status': 'Valid',
+                        'Currency': currency,
+                        'Mailing List Opt In': mailingListOptIn ? true : false,
+                        'Ticket Number': `${n} of ${quantity}`
+                    }));
+                }
+                await Promise.all(ticketWrites);
+                console.log(`Created ${quantity} free ticket(s) for ${email} (Event ${eventId})`);
+            }
+
+            // Reservation → Fulfilled (seat now counted in Tickets Sold, not Reserved)
+            await fetch(resvUrl, {
+                method: 'PATCH',
+                headers: {
+                    'Authorization': `Bearer ${CONFIG.apiKey}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    fields: {
+                        'Status': 'Fulfilled',
+                        'Released At': new Date().toISOString(),
+                        'Released Reason': 'Completed',
+                        'Stripe Session ID': freeSessionId
+                    }
+                })
+            });
+
+            // Waiting List → Converted. Last, so a failure anywhere above leaves
+            // the row Notified and the link still usable.
+            const wlPatch = await fetch(
+                `https://api.airtable.com/v0/${CONFIG.baseId}/${encodeURIComponent(WAITING_LIST_TABLE)}/${wlRow.id}`,
+                {
+                    method: 'PATCH',
+                    headers: {
+                        'Authorization': `Bearer ${CONFIG.apiKey}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        fields: { 'Status': 'Converted', 'Converted Session ID': freeSessionId }
+                    })
+                }
+            );
+            if (!wlPatch.ok) {
+                console.error('Non-fatal: failed to mark Waiting List row Converted:', await wlPatch.text());
+            }
+
+            return res.status(200).json({
+                free: true,
+                sessionId: freeSessionId,
+                redirectUrl: 'https://somevoices.co.uk/ticket-success'
+            });
         }
 
         // ── Build Stripe Checkout line items ─────────────────────────
@@ -267,3 +372,36 @@ module.exports = async function handler(req, res) {
         return res.status(500).json({ error: error.message });
     }
 };
+
+// Look up records in a table by Stripe Session ID. Used by the free path for
+// idempotency — same job as the webhook's fetchRecordsBySessionId.
+async function findBySessionId(tableId, sessionId) {
+    const safeId = String(sessionId).replace(/'/g, "\\'");
+    const formula = encodeURIComponent(`{Stripe Session ID} = '${safeId}'`);
+    const url = `https://api.airtable.com/v0/${CONFIG.baseId}/${tableId}?filterByFormula=${formula}&maxRecords=1`;
+
+    const response = await fetch(url, { headers: { 'Authorization': `Bearer ${CONFIG.apiKey}` } });
+    if (!response.ok) {
+        throw new Error(`Failed to look up ${tableId} by Session ID: ${await response.text()}`);
+    }
+    const data = await response.json();
+    return data.records || [];
+}
+
+async function createAirtableRecord(tableId, fields) {
+    const url = `https://api.airtable.com/v0/${CONFIG.baseId}/${tableId}`;
+
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${CONFIG.apiKey}`,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ fields })
+    });
+
+    if (!response.ok) {
+        throw new Error(`Failed to create record in ${tableId}: ${await response.text()}`);
+    }
+    return await response.json();
+}

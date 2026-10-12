@@ -10,7 +10,9 @@
 //      mailing list opt-in)
 //   4. On submit, POST /api/waiting-list/redeem-checkout
 //        → returns { sessionId } from Stripe Checkout
-//   5. stripe.redirectToCheckout({ sessionId })
+//        → or { free: true, redirectUrl } on a £0 event, where there is no
+//          Stripe session: the endpoint has already issued the ticket
+//   5. stripe.redirectToCheckout({ sessionId }), or go to redirectUrl
 //
 // ─────────────────────────────────────────────────────────────────────
 // HOW TO DEPLOY:
@@ -457,12 +459,24 @@
     document.getElementById('wl-availability-text').innerHTML = text;
   }
 
+  // A £0 event is a real thing (member tickets are often free), so the page
+  // has to stop talking about payment: no Stripe session is created for one.
+  function isFree() {
+    return (unitPrice + bookingFee) === 0;
+  }
+
+  function submitLabel() {
+    return isFree() ? 'Claim my ticket' : 'Proceed to payment';
+  }
+
   function renderQty() {
     document.getElementById('wl-qty-display').textContent = quantity;
     document.getElementById('wl-qty-minus').disabled = (quantity <= 1);
     document.getElementById('wl-qty-plus').disabled = (quantity >= maxAvailable);
     const total = (unitPrice + bookingFee) * quantity;
-    document.getElementById('wl-total').textContent = 'Total: ' + fmtMoney(total);
+    document.getElementById('wl-total').textContent = isFree()
+      ? 'Total: Free'
+      : 'Total: ' + fmtMoney(total);
   }
 
   function showError(msg) {
@@ -529,6 +543,7 @@
       bookingFee = Number(body.event.bookingFee) || 0;
       currencySymbol = currencyToSymbol(body.event.currency);
       quantity = Math.min(1, maxAvailable);
+      document.getElementById('wl-submit').textContent = submitLabel();
 
       if (maxAvailable < 1) {
         // No capacity at all (rare — Notified row whose seat got snipped or
@@ -687,7 +702,7 @@
     }
 
     $submit.disabled = true;
-    $submit.textContent = 'Redirecting to checkout…';
+    $submit.textContent = isFree() ? 'Claiming your ticket…' : 'Redirecting to checkout…';
 
     try {
       const resp = await fetch(API_BASE + '/waiting-list/redeem-checkout', {
@@ -696,7 +711,15 @@
         body: JSON.stringify(payload)
       });
       const data = await resp.json();
-      if (!resp.ok || !data.sessionId) {
+      if (!resp.ok) {
+        throw new Error(data.error || 'Could not claim your ticket');
+      }
+      // Free event — the ticket is already issued, there's no Stripe session.
+      if (data.free) {
+        window.location.href = data.redirectUrl || 'https://somevoices.co.uk/ticket-success';
+        return;
+      }
+      if (!data.sessionId) {
         throw new Error(data.error || 'Could not start checkout');
       }
       const result = await stripe.redirectToCheckout({ sessionId: data.sessionId });
@@ -705,7 +728,7 @@
       $err.textContent = err.message || 'Something went wrong. Please try again.';
       $err.style.display = 'block';
       $submit.disabled = false;
-      $submit.textContent = 'Proceed to payment';
+      $submit.textContent = submitLabel();
     }
   });
 
