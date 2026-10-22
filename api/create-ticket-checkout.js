@@ -17,6 +17,52 @@ const CONFIG = {
 // Reservations table — referenced by name in REST URLs (Airtable accepts both ID and name)
 const RESERVATIONS_TABLE = 'Reservations';
 
+const DEFAULT_SUCCESS_URL = 'https://somevoices.co.uk/ticket-success?session_id={CHECKOUT_SESSION_ID}';
+
+/**
+ * Hosts a caller may send the buyer back to after (or instead of) paying.
+ *
+ * ⚠️ ALLOWLISTED, NEVER TAKEN AS GIVEN. This endpoint sets
+ * Access-Control-Allow-Origin: '*' and takes no credential, so ANYBODY can
+ * call it — and a success_url the caller controls is a phishing page that
+ * opens the instant a real payment succeeds ("payment failed, re-enter your
+ * card"). An unrecognised or malformed value is not an error: it falls back to
+ * the Squarespace pages, which is exactly what every existing caller already
+ * gets, so adding this cannot change the behaviour of the live pages.
+ */
+const RETURN_HOSTS = new Set([
+    'app.somevoic.es',
+    'somevoices.co.uk',
+    'www.somevoices.co.uk'
+]);
+
+function safeReturnUrl(raw) {
+    if (!raw) return null;
+    try {
+        const u = new URL(String(raw));
+        if (u.protocol !== 'https:') return null;
+        if (!RETURN_HOSTS.has(u.hostname)) return null;
+        // Drop any fragment/credentials a caller tacked on.
+        return `${u.origin}${u.pathname}${u.search}`;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Append Stripe's session placeholder.
+ *
+ * ⚠️ BUILT BY STRING CONCATENATION ON PURPOSE. `URL.searchParams.set` would
+ * percent-encode the braces to %7BCHECKOUT_SESSION_ID%7D, which Stripe does
+ * NOT substitute — the buyer would land on a success page carrying a literal
+ * placeholder instead of their session id, and the page would be unable to show
+ * them their own order. The failure is invisible until somebody actually pays.
+ */
+function withSessionPlaceholder(url) {
+    if (!url) return null;
+    return `${url}${url.includes('?') ? '&' : '?'}session_id={CHECKOUT_SESSION_ID}`;
+}
+
 module.exports = async function handler(req, res) {
     // Enable CORS
     res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -53,14 +99,21 @@ module.exports = async function handler(req, res) {
             mailingListOptIn,
             companionTicket,
             companionTicketDetails,
-            source
+            source,
+            // Where to send the buyer afterwards. Optional — see safeReturnUrl.
+            // Added Oct 2026 so the Some Voices APP can sell member tickets
+            // (Grand Sings) without throwing the buyer onto Squarespace the
+            // moment their payment succeeds.
+            returnUrl,
+            cancelReturnUrl
         } = req.body;
 
         const CANCEL_URLS = {
             public: 'https://somevoices.co.uk/ticket-incomplete',
             member: 'https://somevoices.co.uk/member-ticket-incomplete'
         };
-        const cancelUrl = CANCEL_URLS[source] || CANCEL_URLS.public;
+        const cancelUrl = safeReturnUrl(cancelReturnUrl) || CANCEL_URLS[source] || CANCEL_URLS.public;
+        const successUrl = withSessionPlaceholder(safeReturnUrl(returnUrl)) || DEFAULT_SUCCESS_URL;
         const reservationSource = source === 'member' ? 'Member' : 'Public';
 
         if (!selectedTickets || selectedTickets.length === 0) {
@@ -216,7 +269,12 @@ module.exports = async function handler(req, res) {
 
             return res.status(200).json({
                 free: true,
-                redirectUrl: 'https://somevoices.co.uk/ticket-success'
+                // ⚠️ A FREE MEMBER TICKET NEVER TOUCHES STRIPE, so this is the
+                // only redirect in that path — and for an in-app purchase the
+                // caller does not need to follow it at all: `free: true` is
+                // already the whole answer. Honouring returnUrl keeps the two
+                // paths consistent for callers that do redirect.
+                redirectUrl: safeReturnUrl(returnUrl) || 'https://somevoices.co.uk/ticket-success'
             });
         }
 
@@ -297,7 +355,7 @@ module.exports = async function handler(req, res) {
             mode: 'payment',
             expires_at: expiresAt,
             allow_promotion_codes: true,
-            success_url: `https://somevoices.co.uk/ticket-success?session_id={CHECKOUT_SESSION_ID}`,
+            success_url: successUrl,
             cancel_url: cancelUrl,
             customer_email: attendeeEmail,
             automatic_tax: { enabled: true },
