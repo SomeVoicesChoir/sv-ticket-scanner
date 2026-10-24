@@ -57,6 +57,7 @@ module.exports = async function handler(req, res) {
             currency: record.fields["Stripe 'default_price_data[currency]'"] || 'GBP',
             currencySymbol: record.fields['Currency Symbol'] || '£',
             allocation: record.fields['Allocation'] || 0,
+            // Blank → 6. create-ticket-checkout.js enforces the same default; change both together.
             maxTickets: record.fields['Max Tickets Per Purchase'] || 6,
             ticketsRemaining: Math.max(0, record.fields['Tickets Remaining'] || 0),
             bookingFee: record.fields['Booking Fee'] || 0,

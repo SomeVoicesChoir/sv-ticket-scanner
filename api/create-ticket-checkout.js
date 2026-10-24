@@ -63,6 +63,57 @@ function withSessionPlaceholder(url) {
     return `${url}${url.includes('?') ? '&' : '?'}session_id={CHECKOUT_SESSION_ID}`;
 }
 
+/**
+ * What a ticket type costs and is called, read from ITS OWN Event row.
+ *
+ * ⚠️ NEVER FROM THE REQUEST BODY. This endpoint is public (CORS '*', no
+ * credential), and until Oct 2026 it charged whatever `price` / `bookingFee`
+ * the browser sent — so `price: 0` on a £22 ticket took the FREE TICKET PATH
+ * below and issued real, valid tickets without touching Stripe. Everything
+ * that decides money (price, booking fee, currency) or ends up on the ticket
+ * (event name, ticket type, date) now comes from Airtable; the body only says
+ * WHICH row and HOW MANY.
+ *
+ * Returns null on an unreadable price. Whether the row may be a CART LINE is
+ * isSellableLine()'s question, because a companion row is judged differently.
+ */
+function pricedFromRecord(record, fallback) {
+    const price = Number(record.get('Ticket Price') || 0);
+    const bookingFee = Number(record.get('Booking Fee') || 0);
+    if (!Number.isFinite(price) || price < 0 || !Number.isFinite(bookingFee) || bookingFee < 0) return null;
+    // A lookup — Airtable returns it as an ARRAY, and Stripe metadata takes strings only.
+    const venue = record.get('Venue Address Text');
+    return {
+        freePaid: record.get('Free / Paid') || '',
+        price,
+        bookingFee,
+        currency: record.get("Stripe 'default_price_data[currency]'") || 'GBP',
+        stripePriceId: record.get('Stripe Price ID') || '',
+        eventName: record.get('Event Name') || fallback.eventName,
+        ticketType: record.get('Ticket Type') || fallback.ticketType,
+        dateTime: record.get('Date + Time Friendly') || fallback.dateTime,
+        // Event has no {Venue Address} (see redeem-checkout.js) — cosmetic, so the
+        // caller's copy is an acceptable fallback.
+        venueAddress: (Array.isArray(venue) ? venue.join(', ') : venue) || fallback.venueAddress
+    };
+}
+
+/**
+ * May this row be bought as an ordinary cart line? Not a companion (that is
+ * only ever the free add-on), and a row marked Paid must have a real price and
+ * a Stripe price — selling one at £0 is exactly the hole pricedFromRecord
+ * closes, and get-events.js already hides a paid row with no Stripe price.
+ * Verified 24 Oct 2026: no on-sale Paid row has a blank or zero price.
+ */
+function isSellableLine(priced) {
+    if (!priced || isCompanionType(priced.ticketType)) return false;
+    if (priced.freePaid !== 'Free' && (priced.price <= 0 || !priced.stripePriceId)) return false;
+    return true;
+}
+
+const isCompanionType = (t) => /companion/i.test(String(t || ''));
+const isAccessibleType = (t) => /accessible/i.test(String(t || ''));
+
 module.exports = async function handler(req, res) {
     // Enable CORS
     res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -130,6 +181,20 @@ module.exports = async function handler(req, res) {
             return res.status(400).json({ error: 'Invalid ticket data. Please refresh the page and try again.' });
         }
 
+        // Every quantity must be a whole number of seats. Unchecked, a negative
+        // or fractional quantity flowed straight into a Reservations row.
+        const badQuantity = selectedTickets.find(t => !Number.isInteger(t.quantity) || t.quantity < 1);
+        if (badQuantity) {
+            return res.status(400).json({ error: 'Invalid ticket quantity. Please refresh the page and try again.' });
+        }
+
+        // Quantity per TICKET TYPE (Event row), summed — so the same row sent
+        // twice in one cart cannot get past its limit as two small lines.
+        const quantityByEventId = {};
+        for (const t of selectedTickets) {
+            quantityByEventId[t.eventId] = (quantityByEventId[t.eventId] || 0) + t.quantity;
+        }
+
         // BACKEND VALIDATION + RESERVATION: check availability, then create a row in
         // the Reservations table per cart line. Status=Active rows are summed by the
         // Reserved rollup on the Event table; Tickets Remaining = Allocation -
@@ -139,6 +204,16 @@ module.exports = async function handler(req, res) {
         for (const ticket of selectedTickets) {
             try {
                 const record = await base('Event').find(ticket.eventId);
+
+                const priced = pricedFromRecord(record, ticket);
+                if (!isSellableLine(priced)) {
+                    await markReservationRows(reservationRowIds, 'Released', 'Rolled back', null);
+                    return res.status(400).json({
+                        error: `${ticket.eventName || 'That ticket'} is not available to buy. Please refresh the page and try again.`
+                    });
+                }
+                Object.assign(ticket, priced);
+
                 const ticketsRemaining = record.get('Tickets Remaining');
 
                 if (ticketsRemaining === undefined || ticketsRemaining === null) {
@@ -152,6 +227,21 @@ module.exports = async function handler(req, res) {
                     await markReservationRows(reservationRowIds, 'Released', 'Rolled back', null);
                     return res.status(400).json({
                         error: `Sorry, ${ticket.eventName} is sold out.`
+                    });
+                }
+
+                // ⚠️ {Max Tickets Per Purchase} IS PER TICKET TYPE, not per cart:
+                // 6 General Admission AND 6 Accessible is a valid order. It was
+                // enforced nowhere but the selling page's stepper, so a page bug
+                // (or anyone calling this endpoint directly) could send any
+                // quantity. A blank field is 6 — the SAME default get-events.js
+                // publishes, so the stepper a buyer sees and the limit enforced
+                // here can never disagree. Change one, change both.
+                const maxPerPurchase = Number(record.get('Max Tickets Per Purchase')) || 6;
+                if (quantityByEventId[ticket.eventId] > maxPerPurchase) {
+                    await markReservationRows(reservationRowIds, 'Released', 'Rolled back', null);
+                    return res.status(400).json({
+                        error: `${ticket.ticketType || ticket.eventName}: maximum ${maxPerPurchase} ticket${maxPerPurchase === 1 ? '' : 's'} per purchase.`
                     });
                 }
 
@@ -191,6 +281,32 @@ module.exports = async function handler(req, res) {
                 await markReservationRows(reservationRowIds, 'Released', 'Rolled back', null);
                 return res.status(400).json({
                     error: 'Unable to reserve tickets. Please try again.'
+                });
+            }
+        }
+
+        // ⚠️ THE COMPANION IS ALWAYS CHARGED £0, so its row must genuinely be a
+        // free companion ticket for a performance in this cart, alongside an
+        // accessible ticket — otherwise any paid row id sent as the "companion"
+        // was a free ticket.
+        if (companionTicket) {
+            let companionOk = false;
+            try {
+                const compRecord = companionTicketDetails?.eventId
+                    ? await base('Event').find(companionTicketDetails.eventId) : null;
+                const comp = compRecord && pricedFromRecord(compRecord, companionTicketDetails);
+                companionOk = !!comp
+                    && isCompanionType(comp.ticketType)
+                    && comp.price === 0 && comp.bookingFee === 0
+                    && selectedTickets.some(t => isAccessibleType(t.ticketType) && t.eventName === comp.eventName);
+                if (companionOk) Object.assign(companionTicketDetails, comp);
+            } catch (e) {
+                console.error('Companion ticket lookup failed:', e);
+            }
+            if (!companionOk) {
+                await markReservationRows(reservationRowIds, 'Released', 'Rolled back', null);
+                return res.status(400).json({
+                    error: 'A companion ticket goes with an accessible ticket for the same performance. Please refresh the page and try again.'
                 });
             }
         }
