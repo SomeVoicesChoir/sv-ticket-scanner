@@ -603,16 +603,21 @@ document.getElementById('event-select').addEventListener('change', function() {
             document.getElementById('event-doors-performance').textContent = firstEvent.doorsPerformance || '';
             detailsDiv.style.display = 'block';
             document.getElementById('progress-indicator').style.display = 'block';
-            // Update max tickets message based on event setting
-            var maxTickets = firstEvent.maxTickets || 4;
-            document.getElementById('max-tickets-message').innerHTML = '<strong>Maximum ' + maxTickets + ' ticket' + (maxTickets > 1 ? 's' : '') + ' per purchase</strong>';
+            // {Max Tickets Per Purchase} is PER TICKET TYPE, and the checkout
+            // enforces it that way. Never read it off ticketOptions[0]: the feed
+            // order is unsorted, and when a hidden ACCESS COMPANION row (cap 1)
+            // came first it capped the whole show at 1 (Glow London Show 2, Oct 2026).
+            var caps = ticketOptions.filter(function(e) { return !isCompanionRow(e); })
+                .map(function(e) { return getMaxTickets(e.id); });
+            var uniform = caps.length > 0 && caps.every(function(c) { return c === caps[0]; });
+            document.getElementById('max-tickets-message').innerHTML = uniform
+                ? '<strong>Maximum ' + caps[0] + ' of each ticket type per purchase</strong>'
+                : '<strong>Purchase limits apply per ticket type</strong>';
         }
         
         ticketOptions.forEach(function(event) {
             // FILTER OUT COMPANION TICKETS - don't show to customers
-            const ticketTypeLower = (event.ticketType || '').toLowerCase();
-            const ticketTypePriceLower = (event.ticketTypePrice || '').toLowerCase();
-            if (ticketTypeLower.includes('companion') || ticketTypePriceLower.includes('companion')) {
+            if (isCompanionRow(event)) {
                 return;
             }
             
@@ -723,16 +728,22 @@ function checkForAccessibleTickets() {
     }
 }
 
-// Helper function to get max tickets for the currently selected event
-function getMaxTickets() {
-    var currentEvent = eventsData.find(function(e) { return e.name === selectedEventName; });
-    return (currentEvent && currentEvent.maxTickets) ? currentEvent.maxTickets : 4;
+function isCompanionRow(event) {
+    const ticketTypeLower = (event.ticketType || '').toLowerCase();
+    const ticketTypePriceLower = (event.ticketTypePrice || '').toLowerCase();
+    return ticketTypeLower.includes('companion') || ticketTypePriceLower.includes('companion');
+}
+
+// Max tickets for ONE ticket type — read from that row only, never the show.
+// 6 when blank, matching get-events.js and create-ticket-checkout.js.
+function getMaxTickets(eventId) {
+    var event = eventsData.find(function(e) { return e.id === eventId; });
+    return (event && event.maxTickets) ? event.maxTickets : 6;
 }
 
 function increaseQuantity(eventId) {
-    let totalTickets = Object.values(ticketQuantities).reduce(function(sum, qty) { return sum + qty; }, 0);
-    var maxTickets = getMaxTickets();
-    if (totalTickets >= maxTickets) {
+    var maxTickets = getMaxTickets(eventId);
+    if (ticketQuantities[eventId] >= maxTickets) {
         alert('Maximum ' + maxTickets + ' ticket' + (maxTickets > 1 ? 's' : '') + ' per purchase');
         return;
     }
@@ -767,9 +778,8 @@ function updateButtons(eventId) {
     }
     if (plusBtn) {
         const event = eventsData.find(function(e) { return e.id === eventId; });
-        let totalTickets = Object.values(ticketQuantities).reduce(function(sum, qty) { return sum + qty; }, 0);
-        var maxTickets = getMaxTickets();
-        plusBtn.disabled = totalTickets >= maxTickets || ticketQuantities[eventId] >= event.ticketsRemaining;
+        var maxTickets = getMaxTickets(eventId);
+        plusBtn.disabled = ticketQuantities[eventId] >= maxTickets || ticketQuantities[eventId] >= event.ticketsRemaining;
     }
 }
 
