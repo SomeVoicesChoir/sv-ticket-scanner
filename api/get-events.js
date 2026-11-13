@@ -7,6 +7,18 @@ const CONFIG = {
     viewName: 'Currently onsale'
 };
 
+/**
+ * ⚠️ A COMP ROW IS NEVER PUBLISHED, whatever its {On / Off Sale} says.
+ * Comps (free guest tickets for friends, family and leaders, Nov 2026) are
+ * issued by hand from the app's Ticketing Desk and must never be offered on a
+ * checkout page. The desk keeps a COMP row Offsale, but the view's filter is
+ * invisible to every API and anybody can flip the select in Airtable — so this
+ * feed refuses one by its TICKET TYPE as well. Same rule, same regex, in
+ * create-ticket-checkout.js, waiting-list/join.js, waiting-list/redeem-checkout.js
+ * and sv-app's lib/ticketComp.js. `\b` matters: "COMPANION" must not match.
+ */
+const isCompTicketType = (t) => /^\s*comp(s|limentary)?\b/i.test(String(t || ''));
+
 module.exports = async function handler(req, res) {
     // Enable CORS
     res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -66,7 +78,9 @@ module.exports = async function handler(req, res) {
             freePaid: record.fields['Free / Paid'] || '',
             dateRaw: record.fields['Date + Time'] || '',
             scannerPassword: record.fields['Scanner Password'] || ''
-        })).filter(event => event.stripePriceId || event.freePaid === 'Free');
+        }))
+            .filter(event => !isCompTicketType(event.ticketType) && !isCompTicketType(event.ticketTypePrice))
+            .filter(event => event.stripePriceId || event.freePaid === 'Free');
 
         return res.status(200).json({ events });
 

@@ -9,6 +9,10 @@ const CONFIG = {
 // Waiting List table referenced by name (URL-encoded in fetch URLs).
 const WAITING_LIST_TABLE = 'Waiting List';
 
+// Same regex as get-events.js, create-ticket-checkout.js, redeem-checkout.js and
+// sv-app's lib/ticketComp.js. `\b` matters: "COMPANION" must not match.
+const isCompTicketType = (t) => /^\s*comp(s|limentary)?\b/i.test(String(fv(t) || ''));
+
 // Airtable lookup fields come back as arrays — unwrap to first value.
 function fv(field, fallback = '') {
     if (!field) return fallback;
@@ -53,6 +57,13 @@ module.exports = async function handler(req, res) {
         }
         const eventRecord = await eventResp.json();
         const eventName = eventRecord.fields['Event Name'] || 'this event';
+
+        // ⚠️ Nobody queues for a COMP — it is issued by hand, never offered. A
+        // queue row on one would be promoted into a claim link, i.e. a free
+        // ticket bought through the public claim page.
+        if (isCompTicketType(eventRecord.fields['Ticket Type'])) {
+            return res.status(400).json({ error: 'Event not found' });
+        }
 
         // ── Prevent duplicate waiting list entries for the same email + event ──
         // ARRAYJOIN on a linked-record field returns the primary field text of the

@@ -39,6 +39,10 @@ function fv(field, fallback = '') {
     return field || fallback;
 }
 
+// Same regex as get-events.js, create-ticket-checkout.js, join.js and sv-app's
+// lib/ticketComp.js. `\b` matters: "COMPANION" must not match.
+const isCompTicketType = (t) => /^\s*comp(s|limentary)?\b/i.test(String(fv(t) || ''));
+
 module.exports = async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -149,6 +153,10 @@ module.exports = async function handler(req, res) {
         if (!eventResp.ok) return res.status(500).json({ error: 'Could not fetch event details' });
 
         const event = await eventResp.json();
+        // ⚠️ A COMP is never claimed through the public page — see join.js.
+        if (isCompTicketType(event.fields['Ticket Type'])) {
+            return res.status(400).json({ error: 'This ticket is not available to claim' });
+        }
         const eventName = fv(event.fields['Event Name'], 'Some Voices Event');
         const ticketTypePrice = fv(event.fields['Ticket Type + Price']) || fv(event.fields['Ticket Type']) || 'Ticket';
         const dateTime = fv(event.fields['Date + Time Friendly']) || fv(event.fields['Date Friendly']);

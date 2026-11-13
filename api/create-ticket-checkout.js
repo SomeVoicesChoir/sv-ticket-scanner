@@ -107,11 +107,18 @@ function pricedFromRecord(record, fallback) {
  */
 function isSellableLine(priced) {
     if (!priced || isCompanionType(priced.ticketType)) return false;
+    // ⚠️ A COMP is NEVER bought — it is issued by hand from the app's Ticketing
+    // Desk. This endpoint is public and reads the row by id whatever its sale
+    // state, so the refusal is by TICKET TYPE (see isCompTicketType).
+    if (isCompTicketType(priced.ticketType)) return false;
     if (priced.freePaid !== 'Free' && (priced.price <= 0 || !priced.stripePriceId)) return false;
     return true;
 }
 
 const isCompanionType = (t) => /companion/i.test(String(t || ''));
+// Same regex as get-events.js, waiting-list/join.js, waiting-list/redeem-checkout.js
+// and sv-app's lib/ticketComp.js. `\b` matters: "COMPANION" must not match.
+const isCompTicketType = (t) => /^\s*comp(s|limentary)?\b/i.test(String(t || ''));
 const isAccessibleType = (t) => /accessible/i.test(String(t || ''));
 
 module.exports = async function handler(req, res) {

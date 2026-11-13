@@ -108,6 +108,8 @@ GOOGLE_WALLET_SERVICE_ACCOUNT_JSON     # Full contents of service-account.json (
 
 **View:** `Currently onsale` — filters to events available for purchase
 
+⚠️ **A `{Ticket Type}` of `COMP` is NEVER sold, listed or queued for (Nov 2026).** COMPs are free guest tickets that the sv-app Ticketing Desk issues by hand. They're written the same way this repo's free path writes a free order, with a `free_comp_…` session id. The row is kept `Offsale`, but sale state is not the guard. `get-events.js` drops it from the feed, `create-ticket-checkout.js` refuses it as a cart line, and `waiting-list/join.js` and `redeem-checkout.js` refuse it, all by **type**, using one inline regex: `/^\s*comp(s|limentary)?\b/i`. The `\b` is what keeps ACCESS COMPANION buyable. The regex must stay byte-identical to sv-app's `lib/ticketComp.js`. sv-app's `npm run check:comps` compares the copies when the two repos sit side by side.
+
 ### Tickets Table
 **Fields Created by Webhook:**
 - `Event Name` — Linked record to Event table
